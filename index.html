@@ -68,6 +68,18 @@
   .row input[type=checkbox] { accent-color: var(--accent); }
   button:disabled { opacity: .4; cursor: default; }
   button:disabled:hover { border-color: var(--line); }
+  dialog {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 16px 18px; min-width: 260px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  dialog h3 { margin: 0 0 10px; font-size: 13px; font-weight: 600; }
+  dialog p { margin: 0; }
+  dialog input[type=text] {
+    width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; font: inherit;
+  }
+  dialog menu { display: flex; flex-direction: row-reverse; gap: 8px; margin: 14px 0 0; padding: 0; }
   .vtx { fill: #fff; stroke: var(--accent); stroke-width: 1; cursor: move; }
   .shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .shapes button { padding: 4px 2px; }
@@ -151,6 +163,25 @@
     <div class="hint" id="previewInfo"></div>
   </section>
 </main>
+<dialog id="nameDlg">
+  <form method="dialog">
+    <h3>Save design</h3>
+    <input type="text" id="dlgName" placeholder="Design name" autocomplete="off" required>
+    <menu>
+      <button value="ok" class="primary">Save</button>
+      <button value="cancel" formnovalidate>Cancel</button>
+    </menu>
+  </form>
+</dialog>
+<dialog id="confirmDlg">
+  <form method="dialog">
+    <p id="confirmMsg"></p>
+    <menu>
+      <button value="ok" class="primary">Delete</button>
+      <button value="cancel">Cancel</button>
+    </menu>
+  </form>
+</dialog>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -249,16 +280,16 @@ const PRESETS = {
   "Drops & clover": {
     plank: { w: 170, h: 640 },
     profile: [
-      { x: 62, y: 0, r: 0 }, { x: 80, y: 55, r: 45 }, { x: 84, y: 200, r: 90 },
-      { x: 84, y: 450, r: 90 }, { x: 80, y: 590, r: 45 }, { x: 62, y: 640, r: 0 },
+      { x: 62, y: 0, r: 0 }, { x: 80, y: 55, r: 45 }, { x: 39, y: 260, r: 129 },
+      { x: 84, y: 450, r: 90 }, { x: 82, y: 585, r: 45 }, { x: 62, y: 640, r: 0 },
     ],
     cutouts: [
       { type: "clover", cx: 0, cy: 70, w: 52, h: 60, mirror: false },
-      { type: "drop", cx: 0, cy: 300, w: 62, h: 300, mirror: false },
-      { type: "dropDown", cx: 46, cy: 290, w: 26, h: 210, mirror: true },
-      { type: "diamond", cx: 0, cy: 545, w: 44, h: 70, mirror: false },
+      { type: "dropDown", cx: 0, cy: 227, w: 36, h: 192, mirror: false },
+      { type: "drop", cx: 0, cy: 340, w: 59, h: 300, mirror: false },
+      { type: "diamond", cx: 0, cy: 562, w: 58, h: 70, mirror: false },
     ],
-    preview: { count: 7, gap: 20 },
+    preview: { count: 7, gap: 10 },
   },
   "Hearts & waist": {
     plank: { w: 160, h: 620 },
@@ -670,9 +701,15 @@ function setupControls() {
   $("resetBtn").addEventListener("click", () => loadSource(state.source, true));
   $("exportPlank").addEventListener("click", exportPlankSVG);
   $("exportBalustrade").addEventListener("click", exportBalustradeSVG);
+  // prompt()/confirm() are unavailable in some embedded browsers, so use <dialog>
   $("saveDesign").addEventListener("click", () => {
-    const cur = state.source.startsWith("d:") ? state.source.slice(2) : "";
-    const name = (prompt("Save design as:", cur) || "").trim();
+    $("dlgName").value = state.source.startsWith("d:") ? state.source.slice(2) : "";
+    $("nameDlg").returnValue = "";
+    $("nameDlg").showModal();
+  });
+  $("nameDlg").addEventListener("close", () => {
+    if ($("nameDlg").returnValue !== "ok") return;
+    const name = $("dlgName").value.trim();
     if (!name) return;
     const designs = getDesigns();
     designs[name] = JSON.parse(JSON.stringify(state));
@@ -684,10 +721,14 @@ function setupControls() {
   });
   $("delDesign").addEventListener("click", () => {
     if (!state.source.startsWith("d:")) return;
-    const name = state.source.slice(2);
-    if (!confirm(`Delete design "${name}"?`)) return;
+    $("confirmMsg").textContent = `Delete design "${state.source.slice(2)}"?`;
+    $("confirmDlg").returnValue = "";
+    $("confirmDlg").showModal();
+  });
+  $("confirmDlg").addEventListener("close", () => {
+    if ($("confirmDlg").returnValue !== "ok" || !state.source.startsWith("d:")) return;
     const designs = getDesigns();
-    delete designs[name];
+    delete designs[state.source.slice(2)];
     setDesigns(designs);
     state.source = "p:" + Object.keys(PRESETS)[0];
     refreshSourceList();
