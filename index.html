@@ -58,10 +58,8 @@
   .row output { flex: 0 0 58px; text-align: right; font-variant-numeric: tabular-nums; }
   .row input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line); border-radius: 4px; background: none; padding: 1px; }
   .row input[type=checkbox] { accent-color: var(--accent); }
-  .row input[type=text], .row select {
-    flex: 1; min-width: 0; background: var(--panel2); color: var(--text);
-    border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font: inherit;
-  }
+  button:disabled { opacity: .4; cursor: default; }
+  button:disabled:hover { border-color: var(--line); }
   .vtx { fill: #fff; stroke: var(--accent); stroke-width: 1; cursor: move; }
   .shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
   .shapes button { padding: 4px 2px; }
@@ -93,7 +91,9 @@
 <body>
 <header>
   <h1><span>Baluster</span> Designer</h1>
-  <select id="presetSel" title="Load preset"></select>
+  <select id="presetSel" title="Load a preset or saved design"></select>
+  <button id="saveDesign" title="Save current design to this browser">Save…</button>
+  <button id="delDesign" title="Delete selected saved design">✕</button>
   <div class="spacer"></div>
   <button id="exportPlank">Export plank SVG</button>
   <button id="exportBalustrade">Export balustrade SVG</button>
@@ -135,11 +135,6 @@
       <div class="row"><label>Plank</label><input type="color" id="plankColor"></div>
       <div class="row"><label>Rails</label><input type="color" id="railColor"></div>
       <div class="row"><label>Wall</label><input type="color" id="wallColor"></div>
-    </fieldset>
-    <fieldset>
-      <legend>My designs</legend>
-      <div class="row"><input type="text" id="designName" placeholder="Design name"><button id="saveDesign">Save</button></div>
-      <div class="row"><select id="designSel"></select><button id="loadDesign">Load</button><button id="delDesign" title="Delete design">✕</button></div>
     </fieldset>
   </aside>
   <section class="pane" id="previewPane">
@@ -243,7 +238,7 @@ function customPathD(c) {
 
 /* ---------------- presets ---------------- */
 const PRESETS = {
-  "Photo: drops & clover": {
+  "Drops & clover": {
     plank: { w: 170, h: 640 },
     profile: [
       { x: 62, y: 0, r: 26 }, { x: 80, y: 55, r: 45 }, { x: 84, y: 200, r: 90 },
@@ -270,6 +265,64 @@ const PRESETS = {
     ],
     preview: { count: 8, gap: 46 },
   },
+  "Lancet trio": {
+    plank: { w: 150, h: 640 },
+    profile: [
+      { x: 70, y: 0, r: 20 }, { x: 60, y: 120, r: 80 },
+      { x: 60, y: 520, r: 80 }, { x: 70, y: 640, r: 20 },
+    ],
+    cutouts: [
+      { type: "circle", cx: 0, cy: 80, w: 36, h: 36, mirror: false },
+      { type: "vesica", cx: 0, cy: 320, w: 34, h: 280, mirror: false },
+      { type: "vesica", cx: 40, cy: 320, w: 26, h: 200, mirror: true },
+      { type: "circle", cx: 0, cy: 560, w: 36, h: 36, mirror: false },
+    ],
+    preview: { count: 8, gap: 26 },
+  },
+  "Hourglass & diamonds": {
+    plank: { w: 160, h: 640 },
+    profile: [
+      { x: 75, y: 0, r: 15 }, { x: 75, y: 80, r: 60 }, { x: 40, y: 320, r: 110 },
+      { x: 75, y: 560, r: 60 }, { x: 75, y: 640, r: 15 },
+    ],
+    cutouts: [
+      { type: "diamond", cx: 0, cy: 150, w: 50, h: 84, mirror: false },
+      { type: "circle", cx: 0, cy: 320, w: 30, h: 30, mirror: false },
+      { type: "diamond", cx: 0, cy: 490, w: 50, h: 84, mirror: false },
+    ],
+    preview: { count: 8, gap: 24 },
+  },
+  "Quatrefoil & slots": {
+    plank: { w: 180, h: 640 },
+    profile: [
+      { x: 78, y: 0, r: 14 }, { x: 88, y: 120, r: 70 },
+      { x: 88, y: 520, r: 70 }, { x: 78, y: 640, r: 14 },
+    ],
+    cutouts: [
+      { type: "quatrefoil", cx: 0, cy: 96, w: 66, h: 66, mirror: false },
+      { type: "slot", cx: 42, cy: 330, w: 20, h: 280, mirror: true },
+      { type: "vesica", cx: 0, cy: 330, w: 30, h: 240, mirror: false },
+      { type: "dropDown", cx: 0, cy: 552, w: 46, h: 96, mirror: false },
+    ],
+    preview: { count: 7, gap: 12 },
+  },
+  "Tulip (custom cutout)": {
+    plank: { w: 160, h: 640 },
+    profile: [
+      { x: 74, y: 0, r: 18 }, { x: 80, y: 90, r: 60 }, { x: 64, y: 320, r: 120 },
+      { x: 80, y: 550, r: 60 }, { x: 74, y: 640, r: 18 },
+    ],
+    cutouts: [
+      { type: "custom", cx: 0, cy: 140, w: 84, h: 130, mirror: false, round: 5, pts: [
+        { x: 0, y: -0.5 }, { x: 0.14, y: -0.2 }, { x: 0.46, y: -0.42 }, { x: 0.5, y: 0.05 },
+        { x: 0.14, y: 0.3 }, { x: 0.1, y: 0.5 }, { x: -0.1, y: 0.5 }, { x: -0.14, y: 0.3 },
+        { x: -0.5, y: 0.05 }, { x: -0.46, y: -0.42 }, { x: -0.14, y: -0.2 },
+      ] },
+      { type: "vesica", cx: 0, cy: 390, w: 36, h: 240, mirror: false },
+      { type: "heart", cx: 0, cy: 560, w: 52, h: 50, mirror: false },
+    ],
+    preview: { count: 8, gap: 30 },
+  },
   "Silhouette pair (no piercing)": {
     plank: { w: 150, h: 640 },
     profile: [
@@ -294,23 +347,43 @@ let selectedPoint = -1;
 let uid = 1;
 
 function defaultColors() {
-  return { plankColor: "#7f948b", railColor: "#6c8078", wallColor: "#d9b95c" };
+  // kromoxidgrön planks and rails on a creme white wall
+  return { plankColor: "#5c7050", railColor: "#5c7050", wallColor: "#f4eddc" };
 }
-function loadPreset(name) {
+function loadPreset(name, resetColors = false) {
+  if (!PRESETS[name]) name = Object.keys(PRESETS)[0];
   const p = PRESETS[name];
-  const colors = state ? {
+  const colors = (state && !resetColors) ? {
     plankColor: state.preview.plankColor, railColor: state.preview.railColor, wallColor: state.preview.wallColor,
   } : defaultColors();
   state = {
-    preset: name,
+    source: "p:" + name,
     plank: { ...p.plank },
     profile: p.profile.map(pt => ({ ...pt })),
-    cutouts: p.cutouts.map(c => ({ ...c, id: uid++ })),
+    cutouts: p.cutouts.map(c => ({ ...JSON.parse(JSON.stringify(c)), id: uid++ })),
     preview: { rails: true, gapShape: false, ...colors, ...p.preview,
       ...(state ? { rails: state.preview.rails, gapShape: state.preview.gapShape } : {}) },
   };
   selectedCutout = -1;
   selectedPoint = -1;
+}
+
+/* load a preset ("p:Name") or saved design ("d:Name") into the editor */
+function loadSource(src, reset = false) {
+  if (src.startsWith("d:")) {
+    const d = getDesigns()[src.slice(2)];
+    if (d) {
+      state = JSON.parse(JSON.stringify(d));
+      state.source = src;
+      state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+      uid = Math.max(1, ...state.cutouts.map(c => c.id + 1));
+      selectedCutout = -1;
+      selectedPoint = -1;
+    }
+  } else {
+    loadPreset(src.slice(2), reset);
+  }
+  renderAll();
 }
 
 function saveLocal() { try { localStorage.setItem("balusterDesign", JSON.stringify(state)); } catch (e) {} }
@@ -320,6 +393,11 @@ function loadLocal() {
     if (s && s.plank && s.profile && s.cutouts && s.preview) {
       state = s;
       state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+      if (!s.source) {
+        const old = s.preset === "Photo: drops & clover" ? "Drops & clover" : s.preset;
+        s.source = "p:" + (PRESETS[old] ? old : Object.keys(PRESETS)[0]);
+        delete s.preset;
+      }
       uid = Math.max(1, ...s.cutouts.map(c => c.id + 1));
       return true;
     }
@@ -547,49 +625,36 @@ function setupControls() {
     b.addEventListener("click", () => addCutout(key));
     sb.appendChild(b);
   }
-  // presets
+  // presets and saved designs share the header dropdown
   const ps = $("presetSel");
-  for (const name of Object.keys(PRESETS)) {
-    const o = document.createElement("option");
-    o.value = o.textContent = name;
-    ps.appendChild(o);
-  }
-  ps.addEventListener("change", () => { loadPreset(ps.value); renderAll(); });
-  syncers.push(() => ps.value = state.preset || Object.keys(PRESETS)[0]);
-  $("resetBtn").addEventListener("click", () => { loadPreset($("presetSel").value); renderAll(); });
+  ps.addEventListener("change", () => loadSource(ps.value));
+  syncers.push(refreshSourceList);
+  $("resetBtn").addEventListener("click", () => loadSource(state.source, true));
   $("exportPlank").addEventListener("click", exportPlankSVG);
   $("exportBalustrade").addEventListener("click", exportBalustradeSVG);
-  // saved designs
   $("saveDesign").addEventListener("click", () => {
-    let name = $("designName").value.trim();
-    if (!name) name = "Design " + new Date().toISOString().slice(0, 10);
+    const cur = state.source.startsWith("d:") ? state.source.slice(2) : "";
+    const name = (prompt("Save design as:", cur) || "").trim();
+    if (!name) return;
     const designs = getDesigns();
     designs[name] = JSON.parse(JSON.stringify(state));
+    designs[name].source = "d:" + name;
     setDesigns(designs);
-    $("designName").value = name;
-    refreshDesignList(name);
-  });
-  $("loadDesign").addEventListener("click", () => {
-    const name = $("designSel").value;
-    const d = getDesigns()[name];
-    if (!d) return;
-    state = JSON.parse(JSON.stringify(d));
-    state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
-    uid = Math.max(1, ...state.cutouts.map(c => c.id + 1));
-    selectedCutout = -1;
-    selectedPoint = -1;
-    $("designName").value = name;
-    renderAll();
+    state.source = "d:" + name;
+    refreshSourceList();
+    saveLocal();
   });
   $("delDesign").addEventListener("click", () => {
-    const name = $("designSel").value;
-    if (!name || !confirm(`Delete design "${name}"?`)) return;
+    if (!state.source.startsWith("d:")) return;
+    const name = state.source.slice(2);
+    if (!confirm(`Delete design "${name}"?`)) return;
     const designs = getDesigns();
     delete designs[name];
     setDesigns(designs);
-    refreshDesignList();
+    state.source = "p:" + Object.keys(PRESETS)[0];
+    refreshSourceList();
+    saveLocal();
   });
-  refreshDesignList();
 }
 function getDesigns() {
   try { return JSON.parse(localStorage.getItem("balusterDesigns")) || {}; } catch (e) { return {}; }
@@ -597,17 +662,33 @@ function getDesigns() {
 function setDesigns(d) {
   try { localStorage.setItem("balusterDesigns", JSON.stringify(d)); } catch (e) { alert("Could not save: " + e.message); }
 }
-function refreshDesignList(selectName) {
-  const sel = $("designSel");
-  sel.innerHTML = "";
-  const names = Object.keys(getDesigns()).sort();
-  for (const n of names) {
+function refreshSourceList() {
+  const ps = $("presetSel");
+  ps.innerHTML = "";
+  const gp = document.createElement("optgroup");
+  gp.label = "Presets";
+  for (const n of Object.keys(PRESETS)) {
     const o = document.createElement("option");
-    o.value = o.textContent = n;
-    sel.appendChild(o);
+    o.value = "p:" + n;
+    o.textContent = n;
+    gp.appendChild(o);
   }
-  if (selectName) sel.value = selectName;
-  $("loadDesign").disabled = $("delDesign").disabled = names.length === 0;
+  ps.appendChild(gp);
+  const names = Object.keys(getDesigns()).sort();
+  if (names.length) {
+    const gd = document.createElement("optgroup");
+    gd.label = "My designs";
+    for (const n of names) {
+      const o = document.createElement("option");
+      o.value = "d:" + n;
+      o.textContent = n;
+      gd.appendChild(o);
+    }
+    ps.appendChild(gd);
+  }
+  ps.value = state.source;
+  if (ps.selectedIndex === -1) ps.value = "p:" + Object.keys(PRESETS)[0];
+  $("delDesign").disabled = !state.source.startsWith("d:");
 }
 function syncControls() { syncers.forEach(f => f()); }
 
