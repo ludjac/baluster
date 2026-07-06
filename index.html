@@ -56,6 +56,14 @@
   .row label { flex: 0 0 76px; color: var(--muted); }
   .row input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
   .row output { flex: 0 0 58px; text-align: right; font-variant-numeric: tabular-nums; }
+  .row output.editable { cursor: pointer; text-decoration: underline dotted var(--muted); text-underline-offset: 3px; }
+  .row output.editable:hover { color: var(--accent); }
+  .row output input {
+    width: 100%; background: var(--panel2); color: var(--text); text-align: right;
+    border: 1px solid var(--accent); border-radius: 3px; font: inherit; padding: 0 3px;
+    -moz-appearance: textfield;
+  }
+  .row output input::-webkit-outer-spin-button, .row output input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
   .row input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line); border-radius: 4px; background: none; padding: 1px; }
   .row input[type=checkbox] { accent-color: var(--accent); }
   button:disabled { opacity: .4; cursor: default; }
@@ -580,9 +588,39 @@ function shade(hex, amt) {
 }
 
 /* ---------------- controls ---------------- */
+/* click a value readout to type an exact number; Enter/blur commits, Escape cancels */
+function makeEditable(out, get, set, min, max) {
+  out.classList.add("editable");
+  out.title = "Click to type a value";
+  out.addEventListener("click", () => {
+    if (out.querySelector("input")) return;
+    const inp = document.createElement("input");
+    inp.type = "number";
+    inp.value = get();
+    out.textContent = "";
+    out.appendChild(inp);
+    inp.focus();
+    inp.select();
+    let done = false;
+    const commit = ok => {
+      if (done) return;
+      done = true;
+      const v = +inp.value;
+      inp.remove();
+      // cancelled or invalid: re-set the current value so the display re-renders
+      set(ok && Number.isFinite(v) ? clamp(round1(v), min, max) : get());
+    };
+    inp.addEventListener("keydown", e => {
+      if (e.key === "Enter") commit(true);
+      else if (e.key === "Escape") commit(false);
+    });
+    inp.addEventListener("blur", () => commit(true));
+  });
+}
 function bindRange(id, get, set) {
   const el = $(id), out = $(id + "v");
   el.addEventListener("input", () => { set(+el.value); if (out) out.textContent = fmt(id, +el.value); renderAll(); });
+  if (out) makeEditable(out, get, v => { set(v); renderAll(); }, +el.min, +el.max);
   return () => { el.value = get(); if (out) out.textContent = fmt(id, get()); };
 }
 function fmt(id, v) {
@@ -717,19 +755,27 @@ function renderPointPanel() {
   const isEnd = selectedPoint === 0 || selectedPoint === state.profile.length - 1;
   panel.innerHTML = `<legend>Edge point ${selectedPoint + 1} of ${state.profile.length}</legend>
     <div class="row"><label>Radius</label><input type="range" id="pr" min="0" max="250" value="${p.r ?? 0}"><output>${p.r ?? 0} mm</output></div>
-    <div class="row" style="color:var(--muted)">at ${p.x} mm from centre, ${p.y} mm down</div>
+    <div class="row"><label>From centre</label><output id="pxv">${p.x} mm</output></div>
+    <div class="row"><label>Down</label><output id="pyv">${p.y} mm</output></div>
     ${isEnd ? "" : `<div class="btnrow"><button id="pdel">Remove point</button></div>`}`;
+  const rerender = () => { renderEditor(); renderPreview(); renderPointPanel(); saveLocal(); };
   const pr = $("pr");
   pr.addEventListener("input", () => {
     p.r = +pr.value;
     pr.nextElementSibling.textContent = pr.value + " mm";
     renderEditor(); renderPreview(); saveLocal();
   });
-  if (!isEnd) $("pdel").addEventListener("click", () => {
-    state.profile.splice(selectedPoint, 1);
-    selectedPoint = -1;
-    renderAll();
-  });
+  makeEditable(pr.nextElementSibling, () => p.r ?? 0, v => { p.r = v; rerender(); }, 0, 250);
+  makeEditable($("pxv"), () => p.x, v => { p.x = v; rerender(); }, 4, state.plank.w / 2);
+  if (!isEnd) {
+    const prev = state.profile[selectedPoint - 1], next = state.profile[selectedPoint + 1];
+    makeEditable($("pyv"), () => p.y, v => { p.y = v; rerender(); }, prev.y + 4, next.y - 4);
+    $("pdel").addEventListener("click", () => {
+      state.profile.splice(selectedPoint, 1);
+      selectedPoint = -1;
+      renderAll();
+    });
+  }
 }
 
 function renderCutoutPanel() {
@@ -758,6 +804,10 @@ function renderCutoutPanel() {
       el.nextElementSibling.textContent = el.value + " mm";
       renderEditor(); renderPreview(); saveLocal();
     });
+    makeEditable(el.nextElementSibling, () => c[key], v => {
+      c[key] = v;
+      renderEditor(); renderPreview(); renderCutoutPanel(); saveLocal();
+    }, +el.min, +el.max);
   };
   upd("cw", "w"); upd("ch", "h"); upd("cx", "cx"); upd("cy", "cy");
   $("cmirror").addEventListener("input", () => { c.mirror = $("cmirror").checked; renderAll(); });
