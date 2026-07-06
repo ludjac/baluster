@@ -1,0 +1,856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Baluster Designer</title>
+<style>
+  :root {
+    --bg: #262524;
+    --panel: #312f2d;
+    --panel2: #3a3835;
+    --text: #e8e2d8;
+    --muted: #a89f92;
+    --accent: #c9a34e;
+    --line: #4a4744;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.45 "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+  }
+  header {
+    display: flex; align-items: center; gap: 12px;
+    padding: 8px 14px; background: var(--panel); border-bottom: 1px solid var(--line);
+    flex: 0 0 auto;
+  }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; letter-spacing: .04em; }
+  header h1 span { color: var(--accent); }
+  header .spacer { flex: 1; }
+  select, button {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 4px; padding: 5px 10px; font: inherit; cursor: pointer;
+  }
+  button:hover, select:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #262524; border-color: var(--accent); font-weight: 600; }
+  main { flex: 1 1 auto; display: grid; grid-template-columns: minmax(260px, 1fr) 268px minmax(380px, 1.6fr); min-height: 0; }
+  .pane { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .pane .head {
+    padding: 6px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--muted); background: var(--panel); border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .pane svg { flex: 1; width: 100%; height: 100%; display: block; touch-action: none; }
+  #editorPane { border-right: 1px solid var(--line); }
+  #previewPane { border-left: 1px solid var(--line); }
+  .hint { padding: 5px 12px; font-size: 11px; color: var(--muted); border-top: 1px solid var(--line); background: var(--panel); }
+  #controls { overflow-y: auto; background: var(--panel); padding: 10px 12px 30px; }
+  fieldset {
+    border: 1px solid var(--line); border-radius: 6px; margin: 0 0 12px; padding: 8px 10px 10px;
+    min-width: 0;
+  }
+  legend { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--accent); padding: 0 5px; }
+  .row { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+  .row label { flex: 0 0 76px; color: var(--muted); }
+  .row input[type=range] { flex: 1; accent-color: var(--accent); min-width: 0; }
+  .row output { flex: 0 0 58px; text-align: right; font-variant-numeric: tabular-nums; }
+  .row input[type=color] { width: 34px; height: 24px; border: 1px solid var(--line); border-radius: 4px; background: none; padding: 1px; }
+  .row input[type=checkbox] { accent-color: var(--accent); }
+  .row input[type=text], .row select {
+    flex: 1; min-width: 0; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 4px; padding: 5px 8px; font: inherit;
+  }
+  .vtx { fill: #fff; stroke: var(--accent); stroke-width: 1; cursor: move; }
+  .shapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+  .shapes button { padding: 4px 2px; }
+  .shapes button svg { display: block; margin: 0 auto; }
+  .btnrow { display: flex; gap: 6px; margin-top: 8px; }
+  .btnrow button { flex: 1; }
+  #cutoutPanel .none { color: var(--muted); font-style: italic; padding: 4px 0; }
+  /* editor svg elements */
+  .handle { fill: var(--accent); stroke: #262524; stroke-width: .8; cursor: grab; }
+  .handle:hover, .handle.sel { fill: #fff; }
+  .ghosthandle { fill: none; stroke: var(--accent); stroke-width: .6; opacity: .4; }
+  .edgehit { stroke: transparent; fill: none; cursor: copy; }
+  .cuthit { fill: rgba(0,0,0,0); cursor: move; }
+  .cutsel { fill: none; stroke: var(--accent); stroke-dasharray: 3 2; stroke-width: .8; pointer-events: none; }
+  .resizer { fill: #fff; stroke: var(--accent); stroke-width: 1; cursor: nwse-resize; }
+  .dim { fill: var(--muted); font-size: 9px; }
+  .dimline { stroke: var(--muted); stroke-width: .4; }
+  @media (max-width: 900px) {
+    body { overflow: auto; height: auto; }
+    main { display: flex; flex-direction: column; }
+    #editorPane, #previewPane { border: none; border-bottom: 1px solid var(--line); }
+    #editorPane svg { height: 72vh; }
+    #previewPane svg { height: 52vh; }
+    #controls { order: 0; }
+    header { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Baluster</span> Designer</h1>
+  <select id="presetSel" title="Load preset"></select>
+  <div class="spacer"></div>
+  <button id="exportPlank">Export plank SVG</button>
+  <button id="exportBalustrade">Export balustrade SVG</button>
+  <button id="resetBtn" title="Reset current preset">Reset</button>
+</header>
+<main>
+  <section class="pane" id="editorPane">
+    <div class="head">Plank editor <span style="text-transform:none;letter-spacing:0">(one baluster, dimensions in mm)</span></div>
+    <svg id="editor"></svg>
+    <div class="hint">Drag gold handles to shape the sawn edge (mirrored to the left side). Double-click the edge to add a point, double-click a handle to remove it. Drag cutouts to move, use the white corner dot to resize.</div>
+  </section>
+  <aside class="pane" id="controls">
+    <fieldset>
+      <legend>Plank</legend>
+      <div class="row"><label>Width</label><input type="range" id="plankW" min="60" max="300" step="5"><output id="plankWv"></output></div>
+      <div class="row"><label>Height</label><input type="range" id="plankH" min="300" max="1100" step="10"><output id="plankHv"></output></div>
+    </fieldset>
+    <fieldset>
+      <legend>Add cutout</legend>
+      <div class="shapes" id="shapeBtns"></div>
+    </fieldset>
+    <fieldset id="pointPanel">
+      <legend>Selected edge point</legend>
+      <div class="none">Click a gold handle to select it.</div>
+    </fieldset>
+    <fieldset id="cutoutPanel">
+      <legend>Selected cutout</legend>
+      <div class="none">Click a cutout in the editor to select it.</div>
+    </fieldset>
+    <fieldset>
+      <legend>Balustrade</legend>
+      <div class="row"><label>Planks</label><input type="range" id="count" min="2" max="16" step="1"><output id="countv"></output></div>
+      <div class="row"><label>Gap</label><input type="range" id="gap" min="0" max="120" step="2"><output id="gapv"></output></div>
+      <div class="row"><label>Rails</label><input type="checkbox" id="rails" checked></div>
+      <div class="row"><label>Gap shape</label><input type="checkbox" id="gapShape" title="Highlight the negative space formed between planks"></div>
+    </fieldset>
+    <fieldset>
+      <legend>Colours</legend>
+      <div class="row"><label>Plank</label><input type="color" id="plankColor"></div>
+      <div class="row"><label>Rails</label><input type="color" id="railColor"></div>
+      <div class="row"><label>Wall</label><input type="color" id="wallColor"></div>
+    </fieldset>
+    <fieldset>
+      <legend>My designs</legend>
+      <div class="row"><input type="text" id="designName" placeholder="Design name"><button id="saveDesign">Save</button></div>
+      <div class="row"><select id="designSel"></select><button id="loadDesign">Load</button><button id="delDesign" title="Delete design">✕</button></div>
+    </fieldset>
+  </aside>
+  <section class="pane" id="previewPane">
+    <div class="head">Balustrade preview</div>
+    <svg id="preview"></svg>
+    <div class="hint" id="previewInfo"></div>
+  </section>
+</main>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const SVGNS = "http://www.w3.org/2000/svg";
+const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
+const round1 = v => Math.round(v);
+
+/* ---------------- shapes ----------------
+   Each returns an SVG path d-string for a cutout centred on (0,0),
+   w wide and h tall. Multiple subpaths are fine (rendered via mask). */
+const SHAPES = {
+  drop: (w, h) => { // teardrop, point up, round belly below
+    const r = w / 2, cy = h / 2 - r;
+    return `M 0 ${-h / 2}`
+      + ` C ${w * 0.28} ${-h * 0.16} ${r} ${cy - r * 1.4} ${r} ${cy}`
+      + ` A ${r} ${r} 0 1 1 ${-r} ${cy}`
+      + ` C ${-r} ${cy - r * 1.4} ${-w * 0.28} ${-h * 0.16} 0 ${-h / 2} Z`;
+  },
+  dropDown: (w, h) => { // teardrop, point down
+    const r = w / 2, cy = -(h / 2 - r);
+    return `M 0 ${h / 2}`
+      + ` C ${-w * 0.28} ${h * 0.16} ${-r} ${cy + r * 1.4} ${-r} ${cy}`
+      + ` A ${r} ${r} 0 1 1 ${r} ${cy}`
+      + ` C ${r} ${cy + r * 1.4} ${w * 0.28} ${h * 0.16} 0 ${h / 2} Z`;
+  },
+  vesica: (w, h) => // pointed oval / lancet slit
+    `M 0 ${-h / 2} Q ${w * 0.68} 0 0 ${h / 2} Q ${-w * 0.68} 0 0 ${-h / 2} Z`,
+  circle: (w, h) =>
+    `M ${-w / 2} 0 A ${w / 2} ${h / 2} 0 1 0 ${w / 2} 0 A ${w / 2} ${h / 2} 0 1 0 ${-w / 2} 0 Z`,
+  diamond: (w, h) =>
+    `M 0 ${-h / 2} L ${w / 2} 0 L 0 ${h / 2} L ${-w / 2} 0 Z`,
+  heart: (w, h) => { // point down, traditional
+    const t = -h * 0.18;
+    return `M 0 ${h / 2}`
+      + ` C ${-w * 0.62} ${h * 0.08} ${-w * 0.46} ${-h / 2} 0 ${t}`
+      + ` C ${w * 0.46} ${-h / 2} ${w * 0.62} ${h * 0.08} 0 ${h / 2} Z`;
+  },
+  clover: (w, h) => { // trefoil / club, like the small piercings in old railings
+    const r = Math.min(w, h) * 0.27;
+    const top = { x: 0, y: -h / 2 + r };
+    const l = { x: -w / 2 + r, y: h * 0.06 };
+    const rr = { x: w / 2 - r, y: h * 0.06 };
+    const circle = c => `M ${c.x - r} ${c.y} A ${r} ${r} 0 1 0 ${c.x + r} ${c.y} A ${r} ${r} 0 1 0 ${c.x - r} ${c.y} Z`;
+    const stem = `M ${-r * 0.45} ${h * 0.1} L ${r * 0.45} ${h * 0.1} L ${r * 0.28} ${h / 2} L ${-r * 0.28} ${h / 2} Z`;
+    return circle(top) + " " + circle(l) + " " + circle(rr) + " " + stem;
+  },
+  quatrefoil: (w, h) => {
+    const r = Math.min(w, h) * 0.3;
+    const cs = [{ x: 0, y: -h / 2 + r }, { x: 0, y: h / 2 - r }, { x: -w / 2 + r, y: 0 }, { x: w / 2 - r, y: 0 }];
+    return cs.map(c => `M ${c.x - r} ${c.y} A ${r} ${r} 0 1 0 ${c.x + r} ${c.y} A ${r} ${r} 0 1 0 ${c.x - r} ${c.y} Z`).join(" ");
+  },
+  slot: (w, h) => { // rounded slot
+    const r = w / 2;
+    return `M ${-r} ${-h / 2 + r} A ${r} ${r} 0 1 1 ${r} ${-h / 2 + r} L ${r} ${h / 2 - r} A ${r} ${r} 0 1 1 ${-r} ${h / 2 - r} Z`;
+  },
+};
+const SHAPE_LABELS = {
+  drop: "Drop ↑", dropDown: "Drop ↓", vesica: "Lancet", circle: "Circle",
+  diamond: "Diamond", heart: "Heart", clover: "Clover", quatrefoil: "Quatrefoil", slot: "Slot",
+  custom: "Custom",
+};
+/* custom cutouts: pts are normalised to a [-0.5..0.5] box, scaled by w/h;
+   `round` is a corner fillet radius in mm applied at every vertex */
+const CUSTOM_DEFAULT_PTS = [
+  { x: 0, y: -0.5 }, { x: 0.5, y: -0.14 }, { x: 0.3, y: 0.5 }, { x: -0.3, y: 0.5 }, { x: -0.5, y: -0.14 },
+];
+function filletClosedD(pts, r) {
+  const n = pts.length;
+  const norm = v => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
+  const f = p => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`;
+  const corners = pts.map((p, i) => {
+    const prev = pts[(i - 1 + n) % n], next = pts[(i + 1) % n];
+    const lIn = Math.hypot(p.x - prev.x, p.y - prev.y), lOut = Math.hypot(next.x - p.x, next.y - p.y);
+    const t = clamp(r, 0, Math.min(lIn / 2, lOut / 2));
+    const dIn = norm({ x: p.x - prev.x, y: p.y - prev.y });
+    const dOut = norm({ x: next.x - p.x, y: next.y - p.y });
+    return {
+      a: { x: p.x - dIn.x * t, y: p.y - dIn.y * t },
+      b: { x: p.x + dOut.x * t, y: p.y + dOut.y * t },
+      p, t,
+    };
+  });
+  let d = `M ${f(corners[0].a)}`;
+  corners.forEach((c, i) => {
+    if (i > 0) d += ` L ${f(c.a)}`;
+    if (c.t > 0.3) d += ` Q ${f(c.p)} ${f(c.b)}`;
+  });
+  return d + " Z";
+}
+function customPathD(c) {
+  return filletClosedD(c.pts.map(p => ({ x: p.x * c.w, y: p.y * c.h })), c.round ?? 0);
+}
+
+/* ---------------- presets ---------------- */
+const PRESETS = {
+  "Photo: drops & clover": {
+    plank: { w: 170, h: 640 },
+    profile: [
+      { x: 62, y: 0, r: 26 }, { x: 80, y: 55, r: 45 }, { x: 84, y: 200, r: 90 },
+      { x: 84, y: 450, r: 90 }, { x: 80, y: 590, r: 45 }, { x: 62, y: 640, r: 26 },
+    ],
+    cutouts: [
+      { type: "clover", cx: 0, cy: 70, w: 52, h: 60, mirror: false },
+      { type: "drop", cx: 0, cy: 300, w: 62, h: 300, mirror: false },
+      { type: "dropDown", cx: 46, cy: 290, w: 26, h: 210, mirror: true },
+      { type: "diamond", cx: 0, cy: 545, w: 44, h: 70, mirror: false },
+    ],
+    preview: { count: 7, gap: 20 },
+  },
+  "Hearts & waist": {
+    plank: { w: 160, h: 620 },
+    profile: [
+      { x: 78, y: 0, r: 20 }, { x: 66, y: 90, r: 60 }, { x: 44, y: 260, r: 90 },
+      { x: 44, y: 360, r: 90 }, { x: 66, y: 530, r: 60 }, { x: 78, y: 620, r: 20 },
+    ],
+    cutouts: [
+      { type: "heart", cx: 0, cy: 120, w: 58, h: 56, mirror: false },
+      { type: "vesica", cx: 0, cy: 310, w: 34, h: 170, mirror: false },
+      { type: "heart", cx: 0, cy: 505, w: 58, h: 56, mirror: false },
+    ],
+    preview: { count: 8, gap: 46 },
+  },
+  "Silhouette pair (no piercing)": {
+    plank: { w: 150, h: 640 },
+    profile: [
+      { x: 72, y: 0, r: 20 }, { x: 30, y: 80, r: 40 }, { x: 68, y: 190, r: 40 }, { x: 36, y: 320, r: 40 },
+      { x: 68, y: 450, r: 40 }, { x: 30, y: 560, r: 40 }, { x: 72, y: 640, r: 20 },
+    ],
+    cutouts: [],
+    preview: { count: 9, gap: 12 },
+  },
+  "Plain plank": {
+    plank: { w: 140, h: 600 },
+    profile: [{ x: 60, y: 0, r: 0 }, { x: 60, y: 600, r: 0 }],
+    cutouts: [],
+    preview: { count: 8, gap: 40 },
+  },
+};
+
+/* ---------------- state ---------------- */
+let state = null;
+let selectedCutout = -1;
+let selectedPoint = -1;
+let uid = 1;
+
+function defaultColors() {
+  return { plankColor: "#7f948b", railColor: "#6c8078", wallColor: "#d9b95c" };
+}
+function loadPreset(name) {
+  const p = PRESETS[name];
+  const colors = state ? {
+    plankColor: state.preview.plankColor, railColor: state.preview.railColor, wallColor: state.preview.wallColor,
+  } : defaultColors();
+  state = {
+    preset: name,
+    plank: { ...p.plank },
+    profile: p.profile.map(pt => ({ ...pt })),
+    cutouts: p.cutouts.map(c => ({ ...c, id: uid++ })),
+    preview: { rails: true, gapShape: false, ...colors, ...p.preview,
+      ...(state ? { rails: state.preview.rails, gapShape: state.preview.gapShape } : {}) },
+  };
+  selectedCutout = -1;
+  selectedPoint = -1;
+}
+
+function saveLocal() { try { localStorage.setItem("balusterDesign", JSON.stringify(state)); } catch (e) {} }
+function loadLocal() {
+  try {
+    const s = JSON.parse(localStorage.getItem("balusterDesign"));
+    if (s && s.plank && s.profile && s.cutouts && s.preview) {
+      state = s;
+      state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+      uid = Math.max(1, ...s.cutouts.map(c => c.id + 1));
+      return true;
+    }
+  } catch (e) {}
+  return false;
+}
+
+/* ---------------- edge geometry ----------------
+   profile: points {x: half-width, y, r: corner radius} sorted by y,
+   first y=0 last y=plank.h. The edge is straight saw-runs between points
+   with a rounded fillet of radius r at each point, sampled to a polyline
+   (right edge, top to bottom). r=0 gives a sharp corner. */
+function edgeSamples() {
+  const { w, h } = state.plank;
+  const maxX = w / 2;
+  let pts = state.profile.map(p => ({ x: clamp(p.x, 4, maxX), y: clamp(p.y, 0, h), r: p.r ?? 0 }));
+  if (pts.length === 1) pts = [pts[0], { ...pts[0], y: h }];
+  const n = pts.length;
+  const sub = (a, b) => ({ x: a.x - b.x, y: a.y - b.y });
+  const norm = v => { const l = Math.hypot(v.x, v.y) || 1; return { x: v.x / l, y: v.y / l }; };
+  const segLen = [];
+  for (let i = 0; i < n - 1; i++) segLen.push(Math.hypot(pts[i + 1].x - pts[i].x, pts[i + 1].y - pts[i].y));
+  // trim length along each leg of the corner, kept from eating neighbours
+  const t = pts.map((p, i) => {
+    const before = i === 0 ? p.x * 0.95 : segLen[i - 1] / 2;
+    const after = i === n - 1 ? p.x * 0.95 : segLen[i] / 2;
+    return clamp(p.r, 0, Math.min(before, after));
+  });
+  const out = [];
+  const push = p => out.push({ x: clamp(p.x, 0, maxX), y: clamp(p.y, 0, h) });
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    // ends turn onto the flat top/bottom of the plank
+    const dIn = i === 0 ? { x: 1, y: 0 } : norm(sub(p, pts[i - 1]));
+    const dOut = i === n - 1 ? { x: -1, y: 0 } : norm(sub(pts[i + 1], p));
+    if (t[i] < 0.5) { push(p); continue; }
+    const a = { x: p.x - dIn.x * t[i], y: p.y - dIn.y * t[i] };
+    const b = { x: p.x + dOut.x * t[i], y: p.y + dOut.y * t[i] };
+    const STEPS = 12;
+    for (let j = 0; j <= STEPS; j++) {
+      const u = j / STEPS, v = 1 - u;
+      push({ x: v * v * a.x + 2 * v * u * p.x + u * u * b.x, y: v * v * a.y + 2 * v * u * p.y + u * u * b.y });
+    }
+  }
+  return out;
+}
+function outlinePathD(samples) {
+  const right = samples.map(p => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`);
+  const left = [...samples].reverse().map(p => `${(-p.x).toFixed(2)} ${p.y.toFixed(2)}`);
+  return `M ${(-samples[0].x).toFixed(2)} 0 L ${right.join(" L ")} L ${left.join(" L ")} Z`;
+}
+function cutoutPathD(c) {
+  const base = c.type === "custom" ? customPathD(c) : SHAPES[c.type](c.w, c.h);
+  const place = (dx, flip) => `<path d="${base}" transform="translate(${dx} ${c.cy})${flip ? " scale(-1 1)" : ""}"/>`;
+  if (c.mirror && Math.abs(c.cx) > 2) return place(c.cx, false) + place(-c.cx, true);
+  return place(c.cx, false);
+}
+function plankMask(maskId) {
+  const d = outlinePathD(edgeSamples());
+  const cuts = state.cutouts.map(c => cutoutPathD(c)).join("");
+  return `<mask id="${maskId}">
+      <path d="${d}" fill="white"/>
+      <g fill="black">${cuts}</g>
+    </mask>`;
+}
+function plankRect(maskId, fill) {
+  const { w, h } = state.plank;
+  return `<rect x="${-w / 2}" y="0" width="${w}" height="${h}" fill="${fill}" mask="url(#${maskId})"/>`;
+}
+
+/* ---------------- editor rendering ---------------- */
+const editor = $("editor");
+function renderEditor() {
+  const { w, h } = state.plank;
+  const m = 46;
+  editor.setAttribute("viewBox", `${-w / 2 - m} ${-m} ${w + 2 * m} ${h + 2 * m + 10}`);
+  const samples = edgeSamples();
+  const d = outlinePathD(samples);
+  const edgeD = "M " + samples.map(p => `${p.x.toFixed(2)} ${p.y.toFixed(2)}`).join(" L ");
+
+  let s = `<rect x="${-w / 2 - m}" y="${-m}" width="${w + 2 * m}" height="${h + 2 * m + 10}" fill="#211f1e"/>`;
+  s += `<line x1="0" y1="-14" x2="0" y2="${h + 14}" stroke="#4a4744" stroke-width="0.6" stroke-dasharray="5 4"/>`;
+  s += plankMask("editMask") + plankRect("editMask", state.preview.plankColor);
+  s += `<path d="${d}" fill="none" stroke="#1c1b1a" stroke-width="1"/>`;
+
+  // dimension labels
+  s += `<line class="dimline" x1="${-w / 2}" y1="${-18}" x2="${w / 2}" y2="${-18}"/>
+        <text class="dim" x="0" y="${-24}" text-anchor="middle" font-size="${Math.max(10, w * 0.07)}">${w} mm</text>
+        <line class="dimline" x1="${w / 2 + 22}" y1="0" x2="${w / 2 + 22}" y2="${h}"/>
+        <text class="dim" x="${w / 2 + 30}" y="${h / 2}" font-size="${Math.max(10, w * 0.07)}" transform="rotate(90 ${w / 2 + 30} ${h / 2})" text-anchor="middle">${h} mm</text>`;
+
+  // cutout hit areas + selection
+  state.cutouts.forEach((c, i) => {
+    const hit = `<g data-cut="${i}">
+      <g class="cuthit">${cutoutPathD(c).replaceAll("<path", '<path pointer-events="fill"')}</g>
+    </g>`;
+    s += hit;
+    if (i === selectedCutout) {
+      const sx = c.cx, sy = c.cy;
+      s += `<rect class="cutsel" x="${sx - c.w / 2 - 3}" y="${sy - c.h / 2 - 3}" width="${c.w + 6}" height="${c.h + 6}"/>`;
+      if (c.mirror && Math.abs(c.cx) > 2)
+        s += `<rect class="cutsel" opacity="0.4" x="${-sx - c.w / 2 - 3}" y="${sy - c.h / 2 - 3}" width="${c.w + 6}" height="${c.h + 6}"/>`;
+      s += `<circle class="resizer" data-resize="${i}" cx="${sx + c.w / 2 + 3}" cy="${sy + c.h / 2 + 3}" r="5"/>`;
+      if (c.type === "custom") {
+        c.pts.forEach((p, j) => {
+          const ax = c.cx + p.x * c.w, ay = c.cy + p.y * c.h;
+          s += `<rect class="vtx" data-vtx="${j}" x="${ax - 2.8}" y="${ay - 2.8}" width="5.6" height="5.6"/>`;
+        });
+      }
+    }
+  });
+
+  // edge hit path for adding points (double-click)
+  s += `<path class="edgehit" d="${edgeD}" stroke-width="14"/>`;
+  // ghost handles (left, mirrored) + real handles (right)
+  state.profile.forEach((p, i) => {
+    s += `<circle class="ghosthandle" cx="${-p.x}" cy="${p.y}" r="4.5"/>`;
+    s += `<circle class="handle${i === selectedPoint ? " sel" : ""}" data-pt="${i}" cx="${p.x}" cy="${p.y}" r="5.5"/>`;
+  });
+  editor.innerHTML = s;
+}
+
+/* ---------------- preview rendering ---------------- */
+const preview = $("preview");
+function renderPreview() {
+  const { h } = state.plank;
+  const pv = state.preview;
+  const n = pv.count, gap = pv.gap;
+  const samples = edgeSamples();
+  // tile on the actual sawn width, so gap 0 butts the planks together
+  const maxX = Math.max(...samples.map(p => p.x));
+  const effW = 2 * maxX;
+  const overlap = gap === 0 ? 0.4 : 0; // hide antialiasing seam when butted
+  const pitch = effW + gap - overlap;
+  const totalW = n * effW + (n - 1) * gap;
+  const railTop = 62, cap = 26, railBot = 96;
+  const m = 60;
+  const top = pv.rails ? -(railTop + cap) : 0;
+  const bot = pv.rails ? h + railBot : h;
+  preview.setAttribute("viewBox", `${-m} ${top - m} ${totalW + 2 * m} ${bot - top + 2 * m}`);
+
+  let s = `<rect x="${-m}" y="${top - m}" width="${totalW + 2 * m}" height="${bot - top + 2 * m}" fill="${pv.wallColor}"/>`;
+  // subtle floor
+  s += `<rect x="${-m}" y="${bot}" width="${totalW + 2 * m}" height="${m}" fill="rgba(60,40,20,0.25)"/>`;
+
+  // negative gap shapes
+  if (pv.gapShape && n > 1) {
+    for (let i = 0; i < n - 1; i++) {
+      const cx = maxX + i * pitch;
+      const rightEdge = samples.map(p => `${(cx + p.x).toFixed(2)} ${p.y.toFixed(2)}`);
+      const leftEdge = [...samples].reverse().map(p => `${(cx + pitch - p.x).toFixed(2)} ${p.y.toFixed(2)}`);
+      s += `<path d="M ${rightEdge.join(" L ")} L ${leftEdge.join(" L ")} Z" fill="rgba(140,58,47,0.55)"/>`;
+    }
+  }
+
+  // planks (shared mask, flat colour)
+  s += `<defs>${plankMask("tileMask")}</defs>`;
+  for (let i = 0; i < n; i++) {
+    s += `<g transform="translate(${maxX + i * pitch} 0)">${plankRect("tileMask", pv.plankColor)}</g>`;
+  }
+
+  // rails
+  if (pv.rails) {
+    const rx = -24, rw = totalW + 48;
+    s += `<rect x="${rx}" y="${-railTop}" width="${rw}" height="${railTop}" fill="${pv.railColor}"/>
+      <rect x="${rx - 12}" y="${-railTop - cap}" width="${rw + 24}" height="${cap}" rx="7" fill="${shade(pv.railColor, -18)}"/>
+      <rect x="${rx}" y="${h}" width="${rw}" height="${railBot}" fill="${pv.railColor}"/>
+      <rect x="${rx}" y="${h}" width="${rw}" height="10" fill="${shade(pv.railColor, -22)}"/>`;
+  }
+  preview.innerHTML = s;
+
+  const cc = ((effW + gap) / 10).toFixed(1);
+  $("previewInfo").textContent =
+    `${n} planks · ${Math.round(effW)}×${h} mm each · ${gap} mm gap · ${cc} cm centre-to-centre · total width ${(totalW / 10).toFixed(0)} cm` +
+    (pv.rails ? ` · height incl. rails ${((h + railTop + cap + railBot) / 10).toFixed(0)} cm` : "");
+}
+function shade(hex, amt) {
+  const v = hex.match(/[0-9a-f]{2}/gi).map(x => clamp(parseInt(x, 16) + amt, 0, 255));
+  return "#" + v.map(x => x.toString(16).padStart(2, "0")).join("");
+}
+
+/* ---------------- controls ---------------- */
+function bindRange(id, get, set) {
+  const el = $(id), out = $(id + "v");
+  el.addEventListener("input", () => { set(+el.value); if (out) out.textContent = fmt(id, +el.value); renderAll(); });
+  return () => { el.value = get(); if (out) out.textContent = fmt(id, get()); };
+}
+function fmt(id, v) {
+  if (id === "count") return v + " st";
+  return v + " mm";
+}
+const syncers = [];
+function setupControls() {
+  syncers.push(bindRange("plankW", () => state.plank.w, v => {
+    state.plank.w = v;
+    const mx = v / 2;
+    state.profile.forEach(p => p.x = clamp(p.x, 4, mx));
+    state.cutouts.forEach(c => { c.w = Math.min(c.w, v - 10); c.cx = clamp(c.cx, -mx + c.w / 2, mx - c.w / 2); });
+  }));
+  syncers.push(bindRange("plankH", () => state.plank.h, v => {
+    const old = state.plank.h;
+    state.plank.h = v;
+    state.profile.forEach(p => p.y = round1(p.y * v / old));
+    state.cutouts.forEach(c => c.cy = round1(c.cy * v / old));
+  }));
+  syncers.push(bindRange("count", () => state.preview.count, v => state.preview.count = v));
+  syncers.push(bindRange("gap", () => state.preview.gap, v => state.preview.gap = v));
+  for (const [id, key] of [["rails", "rails"], ["gapShape", "gapShape"]]) {
+    $(id).addEventListener("input", () => { state.preview[key] = $(id).checked; renderAll(); });
+    syncers.push(() => $(id).checked = state.preview[key]);
+  }
+  for (const id of ["plankColor", "railColor", "wallColor"]) {
+    $(id).addEventListener("input", () => { state.preview[id] = $(id).value; renderAll(); });
+    syncers.push(() => $(id).value = state.preview[id]);
+  }
+  // shape buttons
+  const sb = $("shapeBtns");
+  for (const key of [...Object.keys(SHAPES), "custom"]) {
+    const b = document.createElement("button");
+    b.title = key === "custom" ? "Custom (editable points)" : SHAPE_LABELS[key];
+    const d = key === "custom"
+      ? customPathD({ pts: CUSTOM_DEFAULT_PTS, w: 30, h: 44, round: 4 })
+      : SHAPES[key](30, 44);
+    b.innerHTML = `<svg width="26" height="34" viewBox="-20 -26 40 52"><path d="${d}" fill="var(--text)"/></svg>`;
+    b.addEventListener("click", () => addCutout(key));
+    sb.appendChild(b);
+  }
+  // presets
+  const ps = $("presetSel");
+  for (const name of Object.keys(PRESETS)) {
+    const o = document.createElement("option");
+    o.value = o.textContent = name;
+    ps.appendChild(o);
+  }
+  ps.addEventListener("change", () => { loadPreset(ps.value); renderAll(); });
+  syncers.push(() => ps.value = state.preset || Object.keys(PRESETS)[0]);
+  $("resetBtn").addEventListener("click", () => { loadPreset($("presetSel").value); renderAll(); });
+  $("exportPlank").addEventListener("click", exportPlankSVG);
+  $("exportBalustrade").addEventListener("click", exportBalustradeSVG);
+  // saved designs
+  $("saveDesign").addEventListener("click", () => {
+    let name = $("designName").value.trim();
+    if (!name) name = "Design " + new Date().toISOString().slice(0, 10);
+    const designs = getDesigns();
+    designs[name] = JSON.parse(JSON.stringify(state));
+    setDesigns(designs);
+    $("designName").value = name;
+    refreshDesignList(name);
+  });
+  $("loadDesign").addEventListener("click", () => {
+    const name = $("designSel").value;
+    const d = getDesigns()[name];
+    if (!d) return;
+    state = JSON.parse(JSON.stringify(d));
+    state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+    uid = Math.max(1, ...state.cutouts.map(c => c.id + 1));
+    selectedCutout = -1;
+    selectedPoint = -1;
+    $("designName").value = name;
+    renderAll();
+  });
+  $("delDesign").addEventListener("click", () => {
+    const name = $("designSel").value;
+    if (!name || !confirm(`Delete design "${name}"?`)) return;
+    const designs = getDesigns();
+    delete designs[name];
+    setDesigns(designs);
+    refreshDesignList();
+  });
+  refreshDesignList();
+}
+function getDesigns() {
+  try { return JSON.parse(localStorage.getItem("balusterDesigns")) || {}; } catch (e) { return {}; }
+}
+function setDesigns(d) {
+  try { localStorage.setItem("balusterDesigns", JSON.stringify(d)); } catch (e) { alert("Could not save: " + e.message); }
+}
+function refreshDesignList(selectName) {
+  const sel = $("designSel");
+  sel.innerHTML = "";
+  const names = Object.keys(getDesigns()).sort();
+  for (const n of names) {
+    const o = document.createElement("option");
+    o.value = o.textContent = n;
+    sel.appendChild(o);
+  }
+  if (selectName) sel.value = selectName;
+  $("loadDesign").disabled = $("delDesign").disabled = names.length === 0;
+}
+function syncControls() { syncers.forEach(f => f()); }
+
+function addCutout(type) {
+  const { w, h } = state.plank;
+  const c = { id: uid++, type, cx: 0, cy: round1(h / 2), w: round1(Math.min(60, w * 0.4)), h: 80, mirror: false };
+  if (type === "drop" || type === "dropDown" || type === "vesica" || type === "slot") c.h = round1(h * 0.3);
+  if (type === "custom") {
+    c.pts = CUSTOM_DEFAULT_PTS.map(p => ({ ...p }));
+    c.round = 8;
+    c.h = round1(h * 0.2);
+  }
+  state.cutouts.push(c);
+  selectedCutout = state.cutouts.length - 1;
+  selectedPoint = -1;
+  renderAll();
+}
+
+function renderPointPanel() {
+  const panel = $("pointPanel");
+  const p = state.profile[selectedPoint];
+  if (!p) {
+    panel.innerHTML = `<legend>Selected edge point</legend><div class="none">Click a gold handle to select it.</div>`;
+    return;
+  }
+  const isEnd = selectedPoint === 0 || selectedPoint === state.profile.length - 1;
+  panel.innerHTML = `<legend>Edge point ${selectedPoint + 1} of ${state.profile.length}</legend>
+    <div class="row"><label>Radius</label><input type="range" id="pr" min="0" max="250" value="${p.r ?? 0}"><output>${p.r ?? 0} mm</output></div>
+    <div class="row" style="color:var(--muted)">at ${p.x} mm from centre, ${p.y} mm down</div>
+    ${isEnd ? "" : `<div class="btnrow"><button id="pdel">Remove point</button></div>`}`;
+  const pr = $("pr");
+  pr.addEventListener("input", () => {
+    p.r = +pr.value;
+    pr.nextElementSibling.textContent = pr.value + " mm";
+    renderEditor(); renderPreview(); saveLocal();
+  });
+  if (!isEnd) $("pdel").addEventListener("click", () => {
+    state.profile.splice(selectedPoint, 1);
+    selectedPoint = -1;
+    renderAll();
+  });
+}
+
+function renderCutoutPanel() {
+  const panel = $("cutoutPanel");
+  const c = state.cutouts[selectedCutout];
+  if (!c) {
+    panel.innerHTML = `<legend>Selected cutout</legend><div class="none">Click a cutout in the editor to select it.</div>`;
+    return;
+  }
+  const maxW = state.plank.w - 8, maxH = state.plank.h - 8;
+  panel.innerHTML = `<legend>Selected: ${SHAPE_LABELS[c.type]}</legend>
+    <div class="row"><label>Width</label><input type="range" id="cw" min="8" max="${maxW}" value="${c.w}"><output>${c.w} mm</output></div>
+    <div class="row"><label>Height</label><input type="range" id="ch" min="8" max="${maxH}" value="${c.h}"><output>${c.h} mm</output></div>
+    <div class="row"><label>Offset X</label><input type="range" id="cx" min="${-maxW / 2}" max="${maxW / 2}" value="${c.cx}"><output>${c.cx} mm</output></div>
+    <div class="row"><label>Position Y</label><input type="range" id="cy" min="0" max="${state.plank.h}" value="${c.cy}"><output>${c.cy} mm</output></div>
+    <div class="row"><label>Mirror pair</label><input type="checkbox" id="cmirror" ${c.mirror ? "checked" : ""} title="Duplicate mirrored across the centreline (needs offset X)"></div>
+    ${c.type === "custom" ? `
+    <div class="row"><label>Rounding</label><input type="range" id="cround" min="0" max="60" value="${c.round ?? 0}"><output>${c.round ?? 0} mm</output></div>
+    <div class="btnrow"><button id="cvadd">Add point</button></div>
+    <div class="row" style="color:var(--muted)">Drag the white squares to shape it. Double-click a square to remove it.</div>` : ""}
+    <div class="btnrow"><button id="cdup">Duplicate</button><button id="cdel">Delete</button></div>`;
+  const upd = (id, key) => {
+    const el = $(id);
+    el.addEventListener("input", () => {
+      c[key] = +el.value;
+      el.nextElementSibling.textContent = el.value + " mm";
+      renderEditor(); renderPreview(); saveLocal();
+    });
+  };
+  upd("cw", "w"); upd("ch", "h"); upd("cx", "cx"); upd("cy", "cy");
+  $("cmirror").addEventListener("input", () => { c.mirror = $("cmirror").checked; renderAll(); });
+  if (c.type === "custom") {
+    upd("cround", "round");
+    $("cvadd").addEventListener("click", () => {
+      // split the longest segment at its midpoint
+      const pts = c.pts, n = pts.length;
+      let best = 0, bestLen = -1;
+      for (let i = 0; i < n; i++) {
+        const a = pts[i], b = pts[(i + 1) % n];
+        const l = Math.hypot((b.x - a.x) * c.w, (b.y - a.y) * c.h);
+        if (l > bestLen) { bestLen = l; best = i; }
+      }
+      const a = pts[best], b = pts[(best + 1) % n];
+      pts.splice(best + 1, 0, { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+      renderAll();
+    });
+  }
+  $("cdup").addEventListener("click", () => {
+    const copy = JSON.parse(JSON.stringify(c));
+    state.cutouts.push({ ...copy, id: uid++, cy: clamp(c.cy + c.h + 20, 0, state.plank.h) });
+    selectedCutout = state.cutouts.length - 1;
+    renderAll();
+  });
+  $("cdel").addEventListener("click", () => {
+    state.cutouts.splice(selectedCutout, 1);
+    selectedCutout = -1;
+    renderAll();
+  });
+}
+
+/* ---------------- editor interaction ---------------- */
+function svgPoint(evt) {
+  const pt = new DOMPoint(evt.clientX, evt.clientY);
+  return pt.matrixTransform(editor.getScreenCTM().inverse());
+}
+let drag = null;
+editor.addEventListener("pointerdown", evt => {
+  const t = evt.target;
+  const p = svgPoint(evt);
+  if (t.dataset.pt !== undefined) {
+    drag = { kind: "pt", i: +t.dataset.pt };
+    selectedPoint = +t.dataset.pt;
+    selectedCutout = -1;
+    renderEditor(); renderPointPanel(); renderCutoutPanel();
+  } else if (t.dataset.resize !== undefined) {
+    drag = { kind: "resize", i: +t.dataset.resize };
+  } else if (t.dataset.vtx !== undefined && state.cutouts[selectedCutout]) {
+    drag = { kind: "vtx", i: selectedCutout, j: +t.dataset.vtx };
+  } else {
+    const g = t.closest("[data-cut]");
+    if (g) {
+      const i = +g.dataset.cut;
+      selectedCutout = i;
+      selectedPoint = -1;
+      const c = state.cutouts[i];
+      drag = { kind: "cut", i, dx: p.x - c.cx, dy: p.y - c.cy };
+      renderEditor(); renderPointPanel(); renderCutoutPanel();
+    } else if (selectedCutout !== -1 || selectedPoint !== -1) {
+      selectedCutout = -1;
+      selectedPoint = -1;
+      renderEditor(); renderPointPanel(); renderCutoutPanel();
+    }
+  }
+  if (drag) { editor.setPointerCapture(evt.pointerId); evt.preventDefault(); }
+});
+editor.addEventListener("pointermove", evt => {
+  if (!drag) return;
+  const p = svgPoint(evt);
+  const { w, h } = state.plank;
+  if (drag.kind === "pt") {
+    const pts = state.profile, i = drag.i;
+    const pt = pts[i];
+    pt.x = round1(clamp(Math.abs(p.x), 4, w / 2));
+    if (i !== 0 && i !== pts.length - 1) {
+      const lo = pts[i - 1].y + 4, hi = pts[i + 1].y - 4;
+      pt.y = round1(clamp(p.y, lo, hi));
+    }
+  } else if (drag.kind === "cut") {
+    const c = state.cutouts[drag.i];
+    let nx = round1(p.x - drag.dx);
+    if (Math.abs(nx) < 4) nx = 0; // snap to centreline
+    c.cx = clamp(nx, -w / 2 + 4, w / 2 - 4);
+    c.cy = round1(clamp(p.y - drag.dy, 0, h));
+  } else if (drag.kind === "resize") {
+    const c = state.cutouts[drag.i];
+    c.w = round1(clamp((p.x - c.cx) * 2, 8, w - 8));
+    c.h = round1(clamp((p.y - c.cy) * 2, 8, h - 8));
+  } else if (drag.kind === "vtx") {
+    const c = state.cutouts[drag.i];
+    const v = c.pts[drag.j];
+    v.x = Math.round(clamp((p.x - c.cx) / c.w, -0.5, 0.5) * 100) / 100;
+    v.y = Math.round(clamp((p.y - c.cy) / c.h, -0.5, 0.5) * 100) / 100;
+  }
+  renderEditor(); renderPreview();
+  if (selectedCutout !== -1 && drag.kind !== "pt") renderCutoutPanel();
+  if (drag.kind === "pt") renderPointPanel();
+});
+editor.addEventListener("pointerup", () => { if (drag) { drag = null; saveLocal(); } });
+editor.addEventListener("dblclick", evt => {
+  const t = evt.target;
+  if (t.dataset.vtx !== undefined && state.cutouts[selectedCutout]) {
+    const c = state.cutouts[selectedCutout];
+    if (c.pts.length > 3) {
+      c.pts.splice(+t.dataset.vtx, 1);
+      renderAll();
+    }
+    return;
+  }
+  if (t.dataset.pt !== undefined) {
+    const i = +t.dataset.pt;
+    if (i !== 0 && i !== state.profile.length - 1) {
+      state.profile.splice(i, 1);
+      selectedPoint = -1;
+      renderAll();
+    }
+    return;
+  }
+  if (t.classList.contains("edgehit")) {
+    const p = svgPoint(evt);
+    const y = round1(clamp(p.y, 6, state.plank.h - 6));
+    const pts = state.profile;
+    let i = pts.findIndex(pt => pt.y > y);
+    if (i <= 0) i = pts.length - 1;
+    pts.splice(i, 0, { x: round1(clamp(Math.abs(p.x), 4, state.plank.w / 2)), y, r: 30 });
+    selectedPoint = i;
+    selectedCutout = -1;
+    renderAll();
+  }
+});
+
+/* ---------------- export ---------------- */
+function download(name, text) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "image/svg+xml" }));
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function exportPlankSVG() {
+  const { w, h } = state.plank;
+  const samples = edgeSamples();
+  const d = outlinePathD(samples);
+  const cuts = state.cutouts.map(c => cutoutPathD(c)).join("\n    ");
+  const svg = `<svg xmlns="${SVGNS}" width="${w}mm" height="${h}mm" viewBox="${-w / 2} 0 ${w} ${h}">
+  <!-- Baluster template, 1:1 scale in mm. Solid lines = saw lines. -->
+  <g fill="none" stroke="black" stroke-width="0.5">
+    <path d="${d}"/>
+    ${cuts}
+  </g>
+  <line x1="0" y1="0" x2="0" y2="${h}" stroke="black" stroke-width="0.2" stroke-dasharray="6 4"/>
+</svg>`;
+  download("baluster-plank.svg", svg);
+}
+function exportBalustradeSVG() {
+  renderPreview();
+  const vb = preview.getAttribute("viewBox");
+  const svg = `<svg xmlns="${SVGNS}" viewBox="${vb}">${preview.innerHTML}</svg>`;
+  download("balustrade.svg", svg);
+}
+
+/* ---------------- boot ---------------- */
+function renderAll() {
+  renderEditor();
+  renderPreview();
+  renderCutoutPanel();
+  renderPointPanel();
+  syncControls();
+  saveLocal();
+}
+if (!loadLocal()) loadPreset(Object.keys(PRESETS)[0]);
+setupControls();
+renderAll();
+</script>
+</body>
+</html>
