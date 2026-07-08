@@ -132,7 +132,22 @@
       <div class="row"><label>Height</label><input type="range" id="plankH" min="300" max="1100" step="10"><output id="plankHv"></output></div>
     </fieldset>
     <fieldset>
-      <legend>Add cutout</legend>
+      <legend>Proportion</legend>
+      <div class="row"><label>System</label><select id="propSys" style="flex:1;min-width:0">
+        <option value="off">Off</option>
+        <option value="halves">Halves</option>
+        <option value="thirds">Thirds</option>
+        <option value="quarters">Quarters</option>
+        <option value="fifths">Fifths</option>
+        <option value="sixths">Sixths</option>
+        <option value="golden">Golden section</option>
+      </select></div>
+      <div class="row"><label>Snap</label><input type="checkbox" id="propSnap" title="Snap edge points and cutouts to the guide lines"></div>
+      <div class="row"><label>H : W</label><output id="ratiov" style="flex:1;text-align:right"></output></div>
+    </fieldset>
+    <fieldset>
+      <legend>Motif &amp; cutouts</legend>
+      <div class="row"><label>Family</label><select id="motifSel" style="flex:1;min-width:0" title="Curate the cutout palette to keep piercings coherent with the silhouette"></select></div>
       <div class="shapes" id="shapeBtns"></div>
     </fieldset>
     <fieldset id="pointPanel">
@@ -149,6 +164,7 @@
       <div class="row"><label>Gap</label><input type="range" id="gap" min="0" max="120" step="2"><output id="gapv"></output></div>
       <div class="row"><label>Rails</label><input type="checkbox" id="rails" checked></div>
       <div class="row"><label>Gap shape</label><input type="checkbox" id="gapShape" title="Highlight the negative space formed between planks"></div>
+      <div class="row"><label>On stair</label><input type="checkbox" id="stair" title="Preview the run raked on a staircase"></div>
     </fieldset>
     <fieldset>
       <legend>Colours</legend>
@@ -275,8 +291,138 @@ function customPathD(c) {
   return filletClosedD(c.pts.map(p => ({ x: p.x * c.w, y: p.y * c.h })), c.round ?? 0);
 }
 
-/* ---------------- presets ---------------- */
-const PRESETS = {
+/* ---------------- presets ----------------
+   ARCHETYPES are the six teaching silhouettes ("basic styles to start from").
+   Each isolates one principle; PATTERNS below are richer worked examples.
+   Optional per-preset keys: proportion {system}, motif (family name). */
+const ARCHETYPES = {
+  "Plain": { // rhythm only — all the design is in the spacing
+    plank: { w: 140, h: 620 },
+    profile: [{ x: 58, y: 0, r: 0 }, { x: 58, y: 620, r: 0 }],
+    cutouts: [],
+    proportion: { system: "off" },
+    preview: { count: 8, gap: 40 },
+  },
+  "Vase": { // single belly, directional — an urn line, no piercing
+    plank: { w: 150, h: 640 },
+    profile: [
+      { x: 34, y: 0, r: 0 }, { x: 40, y: 46, r: 22 }, { x: 18, y: 150, r: 70 },
+      { x: 62, y: 420, r: 170 }, { x: 30, y: 560, r: 80 }, { x: 44, y: 640, r: 0 },
+    ],
+    cutouts: [],
+    proportion: { system: "golden" },
+    preview: { count: 7, gap: 30 },
+  },
+  "Hourglass": { // top-bottom mirror — reversible, calm
+    plank: { w: 150, h: 640 },
+    profile: [
+      { x: 30, y: 0, r: 0 }, { x: 60, y: 90, r: 60 }, { x: 16, y: 320, r: 140 },
+      { x: 60, y: 550, r: 60 }, { x: 30, y: 640, r: 0 },
+    ],
+    cutouts: [],
+    proportion: { system: "halves" },
+    preview: { count: 8, gap: 24 },
+  },
+  "Lancet": { // vertical, pierced foils — Gothic
+    plank: { w: 150, h: 660 },
+    profile: [
+      { x: 66, y: 0, r: 0 }, { x: 58, y: 110, r: 70 },
+      { x: 58, y: 550, r: 70 }, { x: 66, y: 660, r: 0 },
+    ],
+    cutouts: [
+      { type: "circle", cx: 0, cy: 72, w: 32, h: 32, mirror: false },
+      { type: "vesica", cx: 0, cy: 320, w: 38, h: 300, mirror: false },
+      { type: "vesica", cx: 44, cy: 300, w: 24, h: 200, mirror: true },
+      { type: "quatrefoil", cx: 0, cy: 585, w: 52, h: 52, mirror: false },
+    ],
+    proportion: { system: "thirds" },
+    motif: "Gothic",
+    preview: { count: 8, gap: 26 },
+  },
+  "Folk": { // heart, drop, clover — snickarglädje
+    plank: { w: 160, h: 640 },
+    profile: [
+      { x: 74, y: 0, r: 0 }, { x: 82, y: 80, r: 55 }, { x: 54, y: 320, r: 130 },
+      { x: 82, y: 560, r: 55 }, { x: 74, y: 640, r: 0 },
+    ],
+    cutouts: [
+      { type: "heart", cx: 0, cy: 120, w: 60, h: 56, mirror: false },
+      { type: "dropDown", cx: 0, cy: 330, w: 40, h: 180, mirror: false },
+      { type: "clover", cx: 0, cy: 560, w: 52, h: 60, mirror: false },
+    ],
+    proportion: { system: "thirds" },
+    motif: "Folk",
+    preview: { count: 8, gap: 30 },
+  },
+  "Geometric": { // negative-space repeat — modern
+    plank: { w: 120, h: 640 },
+    profile: [{ x: 46, y: 0, r: 0 }, { x: 46, y: 640, r: 0 }],
+    cutouts: [
+      { type: "circle", cx: 0, cy: 96, w: 44, h: 44, mirror: false },
+      { type: "slot", cx: 0, cy: 250, w: 22, h: 150, mirror: false },
+      { type: "slot", cx: 0, cy: 430, w: 22, h: 150, mirror: false },
+      { type: "slot", cx: 0, cy: 585, w: 22, h: 60, mirror: false },
+    ],
+    proportion: { system: "sixths" },
+    motif: "Geometric",
+    preview: { count: 9, gap: 18 },
+  },
+};
+const PATTERNS = {
+  "Trappa · dubbeldocka": { // interior farm stair: crisp turned double baluster, solid
+    plank: { w: 110, h: 740 },
+    profile: [
+      { x: 30, y: 0, r: 0 }, { x: 30, y: 30, r: 0 },   // top square block (seats on handrail)
+      { x: 16, y: 74, r: 6 },                           // cove into neck
+      { x: 48, y: 200, r: 44 },                         // UPPER belly
+      { x: 18, y: 300, r: 10 },                         // neck to centre
+      { x: 24, y: 370, r: 0 },                          // squared centre collar (vases meet)
+      { x: 18, y: 440, r: 10 },                         // neck from centre
+      { x: 48, y: 540, r: 44 },                         // LOWER belly
+      { x: 16, y: 666, r: 6 },                          // cove
+      { x: 30, y: 710, r: 0 }, { x: 30, y: 740, r: 0 }, // base square block (seats on shoe rail)
+    ],
+    cutouts: [],
+    proportion: { system: "quarters" },
+    preview: { count: 7, gap: 22, plankColor: "#94a088", railColor: "#4a3b33", wallColor: "#ece4d0" },
+  },
+  "Trappa · enkeldocka": { // interior stair: single low-bellied vase, footed
+    plank: { w: 110, h: 740 },
+    profile: [
+      { x: 30, y: 0, r: 0 }, { x: 30, y: 30, r: 0 },   // top square block (seats on handrail)
+      { x: 15, y: 78, r: 6 },                           // cove into neck
+      { x: 15, y: 250, r: 6 },                           // long slender neck
+      { x: 22, y: 300, r: 0 },                           // small squared collar
+      { x: 15, y: 350, r: 6 },                           // back to neck
+      { x: 50, y: 500, r: 46 },                          // low vase belly
+      { x: 20, y: 640, r: 10 },                          // ankle / cove
+      { x: 32, y: 700, r: 0 }, { x: 32, y: 740, r: 0 },  // wider base block (foot)
+    ],
+    cutouts: [],
+    proportion: { system: "golden" },
+    preview: { count: 7, gap: 22, plankColor: "#94a088", railColor: "#4a3b33", wallColor: "#ece4d0" },
+  },
+  "Trappa · stolpe (newel)": { // heavier post: ball finial, cap, shaft, base plinth
+    plank: { w: 160, h: 1040 },
+    profile: [
+      { x: 8, y: 0, r: 0 },        // flat top of finial
+      { x: 40, y: 70, r: 34 },     // ball finial (klot)
+      { x: 13, y: 138, r: 22 },    // finial neck
+      { x: 48, y: 168, r: 0 },     // cap block top (abacus — handrail dies in here)
+      { x: 48, y: 205, r: 0 },     // cap block bottom
+      { x: 36, y: 236, r: 6 },     // chamfer into shaft
+      { x: 36, y: 486, r: 0 },     // shaft
+      { x: 44, y: 516, r: 0 },     // mid collar (ring, echoes the dockor)
+      { x: 44, y: 540, r: 0 },
+      { x: 36, y: 570, r: 6 },     // back to shaft
+      { x: 36, y: 918, r: 0 },     // shaft
+      { x: 54, y: 952, r: 0 },     // base block flares (plinth)
+      { x: 54, y: 1040, r: 0 },    // base block bottom (on floor)
+    ],
+    cutouts: [],
+    proportion: { system: "off" },
+    preview: { count: 2, gap: 90, plankColor: "#94a088", railColor: "#4a3b33", wallColor: "#ece4d0" },
+  },
   "Drops & clover": {
     plank: { w: 170, h: 640 },
     profile: [
@@ -379,6 +525,27 @@ const PRESETS = {
   },
 };
 
+/* tag the richer patterns with a motif family so the cutout palette guides you */
+PATTERNS["Drops & clover"].motif = "Folk";
+PATTERNS["Hearts & waist"].motif = "Folk";
+PATTERNS["Lancet trio"].motif = "Gothic";
+PATTERNS["Hourglass & diamonds"].motif = "Geometric";
+PATTERNS["Quatrefoil & slots"].motif = "Gothic";
+PATTERNS["Tulip (custom cutout)"].motif = "Folk";
+
+const PRESET_GROUPS = [["Archetypes", ARCHETYPES], ["Presets", PATTERNS]];
+const PRESETS = Object.assign({}, ARCHETYPES, PATTERNS);
+
+/* ---------------- motif families ----------------
+   A family curates the cutout palette so piercings stay coherent with the
+   silhouette (Gothic foils, folk hearts, hard geometry). null = show all. */
+const MOTIF_FAMILIES = {
+  "All shapes": null,
+  "Gothic": ["vesica", "quatrefoil", "clover", "circle", "slot"],
+  "Folk": ["heart", "drop", "dropDown", "clover", "custom"],
+  "Geometric": ["circle", "diamond", "slot", "quatrefoil"],
+};
+
 /* ---------------- state ---------------- */
 let state = null;
 let selectedCutout = -1;
@@ -386,8 +553,8 @@ let selectedPoint = -1;
 let uid = 1;
 
 function defaultColors() {
-  // kromoxidgrön planks and rails on a creme white wall
-  return { plankColor: "#5c7050", railColor: "#5c7050", wallColor: "#f4eddc" };
+  // 1700s grågrön (Gustavian green-grey) planks and rails on a broken-white wall
+  return { plankColor: "#94a088", railColor: "#94a088", wallColor: "#f4eddc" };
 }
 function loadPreset(name, resetColors = false) {
   if (!PRESETS[name]) name = Object.keys(PRESETS)[0];
@@ -395,16 +562,28 @@ function loadPreset(name, resetColors = false) {
   const colors = (state && !resetColors) ? {
     plankColor: state.preview.plankColor, railColor: state.preview.railColor, wallColor: state.preview.wallColor,
   } : defaultColors();
+  // the guide system is design intent (from the preset); snapping is a sticky workflow preference
+  const snap = state ? state.proportion.snap : true;
   state = {
     source: "p:" + name,
     plank: { ...p.plank },
     profile: p.profile.map(pt => ({ ...pt })),
     cutouts: p.cutouts.map(c => ({ ...JSON.parse(JSON.stringify(c)), id: uid++ })),
-    preview: { rails: true, gapShape: false, ...colors, ...p.preview,
-      ...(state ? { rails: state.preview.rails, gapShape: state.preview.gapShape } : {}) },
+    proportion: { system: (p.proportion && p.proportion.system) || "off", snap },
+    motif: MOTIF_FAMILIES[p.motif] !== undefined ? p.motif : "All shapes",
+    preview: { rails: true, gapShape: false, stair: false, ...colors, ...p.preview,
+      ...(state ? { rails: state.preview.rails, gapShape: state.preview.gapShape, stair: !!state.preview.stair } : {}) },
   };
   selectedCutout = -1;
   selectedPoint = -1;
+}
+
+/* backfill fields that older saved designs / localStorage predate */
+function ensureDefaults(s) {
+  s.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+  if (!s.proportion) s.proportion = { system: "off", snap: true };
+  if (s.proportion.snap === undefined) s.proportion.snap = true;
+  if (!s.motif || MOTIF_FAMILIES[s.motif] === undefined) s.motif = "All shapes";
 }
 
 /* load a preset ("p:Name") or saved design ("d:Name") into the editor */
@@ -414,7 +593,7 @@ function loadSource(src, reset = false) {
     if (d) {
       state = JSON.parse(JSON.stringify(d));
       state.source = src;
-      state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+      ensureDefaults(state);
       uid = Math.max(1, ...state.cutouts.map(c => c.id + 1));
       selectedCutout = -1;
       selectedPoint = -1;
@@ -431,7 +610,7 @@ function loadLocal() {
     const s = JSON.parse(localStorage.getItem("balusterDesign"));
     if (s && s.plank && s.profile && s.cutouts && s.preview) {
       state = s;
-      state.profile.forEach(p => { if (p.r === undefined) p.r = 30; });
+      ensureDefaults(state);
       if (!s.source) {
         const old = s.preset === "Photo: drops & clover" ? "Drops & clover" : s.preset;
         s.source = "p:" + (PRESETS[old] ? old : Object.keys(PRESETS)[0]);
@@ -507,6 +686,33 @@ function plankRect(maskId, fill) {
   return `<rect x="${-w / 2}" y="0" width="${w}" height="${h}" fill="${fill}" mask="url(#${maskId})"/>`;
 }
 
+/* ---------------- proportion system ----------------
+   Marks are height fractions (0..1) where guide lines are drawn; ends omitted.
+   Golden section splits the height at φ from each end (0.382 / 0.618). */
+function proportionMarks() {
+  const sys = state.proportion.system;
+  if (sys === "golden") return [0.382, 0.618];
+  const n = { halves: 2, thirds: 3, quarters: 4, fifths: 5, sixths: 6 }[sys];
+  if (!n) return [];
+  return Array.from({ length: n - 1 }, (_, i) => (i + 1) / n);
+}
+/* snap a y (mm) to the nearest guide when snapping is on */
+function snapY(y) {
+  if (!state.proportion.snap) return y;
+  const marks = proportionMarks();
+  if (!marks.length) return y;
+  const h = state.plank.h, tol = Math.max(8, h * 0.015);
+  let best = y, bd = tol;
+  for (const m of marks) { const d = Math.abs(m * h - y); if (d < bd) { bd = d; best = m * h; } }
+  return best;
+}
+function ratioText() {
+  const r = state.plank.h / state.plank.w;
+  const named = [["golden", 1.618], ["√2", 1.414], ["2:1", 2], ["3:1", 3], ["4:1", 4], ["5:1", 5]];
+  const hit = named.find(([, v]) => Math.abs(r - v) < 0.06);
+  return r.toFixed(2) + " : 1" + (hit ? " · " + hit[0] : "");
+}
+
 /* ---------------- editor rendering ---------------- */
 const editor = $("editor");
 function renderEditor() {
@@ -521,6 +727,18 @@ function renderEditor() {
   s += `<line x1="0" y1="-14" x2="0" y2="${h + 14}" stroke="#4a4744" stroke-width="0.6" stroke-dasharray="5 4"/>`;
   s += plankMask("editMask") + plankRect("editMask", state.preview.plankColor);
   s += `<path d="${d}" fill="none" stroke="#1c1b1a" stroke-width="1"/>`;
+
+  // proportion guides (drawn over the plank so divisions read across the body)
+  const marks = proportionMarks();
+  if (marks.length) {
+    const gx0 = -w / 2 - 10, gx1 = w / 2 + 10;
+    const lab = state.proportion.system === "golden" ? ["φ", "φ"] : null;
+    marks.forEach((f, i) => {
+      const gy = (f * h).toFixed(1);
+      s += `<line x1="${gx0}" y1="${gy}" x2="${gx1}" y2="${gy}" stroke="var(--accent)" stroke-width="0.5" stroke-dasharray="2 4" opacity="0.55" pointer-events="none"/>`;
+      s += `<text class="dim" x="${gx0 - 2}" y="${gy}" text-anchor="end" dominant-baseline="middle" font-size="${Math.max(9, w * 0.06)}" fill="var(--accent)" pointer-events="none">${lab ? lab[i] : Math.round(f * 100) + "%"}</text>`;
+    });
+  }
 
   // dimension labels
   s += `<line class="dimline" x1="${-w / 2}" y1="${-18}" x2="${w / 2}" y2="${-18}"/>
@@ -572,6 +790,49 @@ function renderPreview() {
   const overlap = gap === 0 ? 0.4 : 0; // hide antialiasing seam when butted
   const pitch = effW + gap - overlap;
   const totalW = n * effW + (n - 1) * gap;
+
+  // raked "on stair" view: identical balusters step up to the right on an open
+  // string, tops following a sloped handrail (as on a straight staircase run)
+  if (pv.stair) {
+    const slope = 0.5, rise = pitch * slope;
+    const railTh = 34, capH = 12, m = 60, ext = 24;
+    const f = x => -slope * (x - maxX);              // baluster-top / handrail line
+    const treadY = i => h - i * rise;               // tread each baluster stands on
+    const xL = -ext, xR = totalW + ext;
+    const topY = f(xR) - railTh - capH, botY = h + 90;
+    const vy0 = topY - m;
+    preview.setAttribute("viewBox", `${-m} ${vy0} ${totalW + 2 * m} ${botY + m - vy0}`);
+
+    let s = `<rect x="${-m}" y="${vy0}" width="${totalW + 2 * m}" height="${botY + m - vy0}" fill="${pv.wallColor}"/>`;
+    // open-string staircase
+    let step = `M ${xL} ${treadY(0).toFixed(1)}`;
+    for (let i = 0; i < n; i++) {
+      const rx = i === n - 1 ? xR : (i + 1) * pitch;
+      step += ` L ${rx.toFixed(1)} ${treadY(i).toFixed(1)}`;
+      if (i < n - 1) step += ` L ${((i + 1) * pitch).toFixed(1)} ${treadY(i + 1).toFixed(1)}`;
+    }
+    step += ` L ${xR} ${botY} L ${xL} ${botY} Z`;
+    s += `<path d="${step}" fill="${shade(pv.wallColor, -26)}"/>`;
+    for (let i = 1; i < n; i++)
+      s += `<line x1="${(i * pitch).toFixed(1)}" y1="${treadY(i).toFixed(1)}" x2="${(i * pitch).toFixed(1)}" y2="${treadY(i - 1).toFixed(1)}" stroke="${shade(pv.wallColor, -46)}" stroke-width="3"/>`;
+
+    // balusters, raked
+    s += `<defs>${plankMask("tileMask")}</defs>`;
+    for (let i = 0; i < n; i++)
+      s += `<g transform="translate(${(maxX + i * pitch).toFixed(2)} ${(-i * rise).toFixed(2)})">${plankRect("tileMask", pv.plankColor)}</g>`;
+
+    // sloped handrail + cap
+    const yL = f(xL), yR = f(xR);
+    const bar = (dt, db, fill) => `<path d="M ${xL} ${(yL - dt).toFixed(1)} L ${xR} ${(yR - dt).toFixed(1)} L ${xR} ${(yR - db).toFixed(1)} L ${xL} ${(yL - db).toFixed(1)} Z" fill="${fill}"/>`;
+    s += bar(railTh, -6, pv.railColor);
+    s += bar(railTh + capH, railTh, shade(pv.railColor, -18));
+    preview.innerHTML = s;
+
+    $("previewInfo").textContent =
+      `On stair · ${n} balusters · ${Math.round(effW)}×${h} mm each · ${gap} mm gap · rake ≈ ${(Math.atan(slope) * 180 / Math.PI).toFixed(0)}°`;
+    return;
+  }
+
   const railTop = 62, cap = 26, railBot = 96;
   const m = 60;
   const top = pv.rails ? -(railTop + cap) : 0;
@@ -659,6 +920,28 @@ function fmt(id, v) {
   return v + " mm";
 }
 const syncers = [];
+/* build the cutout palette; the active motif family floats its shapes to the
+   front and dims the off-family ones (a guide, not a cage — all stay clickable) */
+function renderShapeButtons() {
+  const sb = $("shapeBtns");
+  if (!sb) return;
+  sb.innerHTML = "";
+  const fam = MOTIF_FAMILIES[state.motif] || null;
+  const inFam = key => !fam || key === "custom" || fam.includes(key);
+  const keys = [...Object.keys(SHAPES), "custom"].sort((a, b) => (inFam(b) ? 1 : 0) - (inFam(a) ? 1 : 0));
+  for (const key of keys) {
+    const b = document.createElement("button");
+    const on = inFam(key);
+    if (!on) b.style.opacity = ".3";
+    b.title = (key === "custom" ? "Custom (editable points)" : SHAPE_LABELS[key]) + (on ? "" : " · off-family");
+    const d = key === "custom"
+      ? customPathD({ pts: CUSTOM_DEFAULT_PTS, w: 30, h: 44, round: 4 })
+      : SHAPES[key](30, 44);
+    b.innerHTML = `<svg width="26" height="34" viewBox="-20 -26 40 52"><path d="${d}" fill="var(--text)"/></svg>`;
+    b.addEventListener("click", () => addCutout(key));
+    sb.appendChild(b);
+  }
+}
 function setupControls() {
   syncers.push(bindRange("plankW", () => state.plank.w, v => {
     state.plank.w = v;
@@ -674,7 +957,7 @@ function setupControls() {
   }));
   syncers.push(bindRange("count", () => state.preview.count, v => state.preview.count = v));
   syncers.push(bindRange("gap", () => state.preview.gap, v => state.preview.gap = v));
-  for (const [id, key] of [["rails", "rails"], ["gapShape", "gapShape"]]) {
+  for (const [id, key] of [["rails", "rails"], ["gapShape", "gapShape"], ["stair", "stair"]]) {
     $(id).addEventListener("input", () => { state.preview[key] = $(id).checked; renderAll(); });
     syncers.push(() => $(id).checked = state.preview[key]);
   }
@@ -682,18 +965,21 @@ function setupControls() {
     $(id).addEventListener("input", () => { state.preview[id] = $(id).value; renderAll(); });
     syncers.push(() => $(id).value = state.preview[id]);
   }
-  // shape buttons
-  const sb = $("shapeBtns");
-  for (const key of [...Object.keys(SHAPES), "custom"]) {
-    const b = document.createElement("button");
-    b.title = key === "custom" ? "Custom (editable points)" : SHAPE_LABELS[key];
-    const d = key === "custom"
-      ? customPathD({ pts: CUSTOM_DEFAULT_PTS, w: 30, h: 44, round: 4 })
-      : SHAPES[key](30, 44);
-    b.innerHTML = `<svg width="26" height="34" viewBox="-20 -26 40 52"><path d="${d}" fill="var(--text)"/></svg>`;
-    b.addEventListener("click", () => addCutout(key));
-    sb.appendChild(b);
+  // proportion + motif
+  $("propSys").addEventListener("change", () => { state.proportion.system = $("propSys").value; renderAll(); });
+  syncers.push(() => $("propSys").value = state.proportion.system);
+  $("propSnap").addEventListener("change", () => { state.proportion.snap = $("propSnap").checked; saveLocal(); });
+  syncers.push(() => $("propSnap").checked = state.proportion.snap);
+  syncers.push(() => { const o = $("ratiov"); if (o) o.textContent = ratioText(); });
+  const ms = $("motifSel");
+  for (const name of Object.keys(MOTIF_FAMILIES)) {
+    const o = document.createElement("option");
+    o.value = name; o.textContent = name;
+    ms.appendChild(o);
   }
+  ms.addEventListener("change", () => { state.motif = ms.value; renderShapeButtons(); saveLocal(); });
+  syncers.push(() => { ms.value = state.motif; renderShapeButtons(); });
+  renderShapeButtons();
   // presets and saved designs share the header dropdown
   const ps = $("presetSel");
   ps.addEventListener("change", () => loadSource(ps.value));
@@ -744,15 +1030,17 @@ function setDesigns(d) {
 function refreshSourceList() {
   const ps = $("presetSel");
   ps.innerHTML = "";
-  const gp = document.createElement("optgroup");
-  gp.label = "Presets";
-  for (const n of Object.keys(PRESETS)) {
-    const o = document.createElement("option");
-    o.value = "p:" + n;
-    o.textContent = n;
-    gp.appendChild(o);
+  for (const [label, items] of PRESET_GROUPS) {
+    const gp = document.createElement("optgroup");
+    gp.label = label;
+    for (const n of Object.keys(items)) {
+      const o = document.createElement("option");
+      o.value = "p:" + n;
+      o.textContent = n;
+      gp.appendChild(o);
+    }
+    ps.appendChild(gp);
   }
-  ps.appendChild(gp);
   const names = Object.keys(getDesigns()).sort();
   if (names.length) {
     const gd = document.createElement("optgroup");
@@ -926,14 +1214,14 @@ editor.addEventListener("pointermove", evt => {
     pt.x = round1(clamp(Math.abs(p.x), 4, w / 2));
     if (i !== 0 && i !== pts.length - 1) {
       const lo = pts[i - 1].y + 4, hi = pts[i + 1].y - 4;
-      pt.y = round1(clamp(p.y, lo, hi));
+      pt.y = round1(clamp(snapY(p.y), lo, hi));
     }
   } else if (drag.kind === "cut") {
     const c = state.cutouts[drag.i];
     let nx = round1(p.x - drag.dx);
     if (Math.abs(nx) < 4) nx = 0; // snap to centreline
     c.cx = clamp(nx, -w / 2 + 4, w / 2 - 4);
-    c.cy = round1(clamp(p.y - drag.dy, 0, h));
+    c.cy = round1(clamp(snapY(p.y - drag.dy), 0, h));
   } else if (drag.kind === "resize") {
     const c = state.cutouts[drag.i];
     c.w = round1(clamp((p.x - c.cx) * 2, 8, w - 8));
@@ -1020,7 +1308,7 @@ function renderAll() {
   syncControls();
   saveLocal();
 }
-if (!loadLocal()) loadPreset(Object.keys(PRESETS)[0]);
+if (!loadLocal()) loadPreset("Folk");
 setupControls();
 renderAll();
 </script>
