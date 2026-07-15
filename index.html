@@ -95,6 +95,7 @@
   .cuthit { fill: rgba(0,0,0,0); cursor: move; }
   .cutsel { fill: none; stroke: var(--accent); stroke-dasharray: 3 2; stroke-width: .8; pointer-events: none; }
   .resizer { fill: #fff; stroke: var(--accent); stroke-width: 1; cursor: nwse-resize; }
+  .marquee { fill: rgba(201,163,78,.12); stroke: var(--accent); stroke-width: .8; stroke-dasharray: 4 3; pointer-events: none; }
   .dim { fill: var(--muted); font-size: 9px; }
   .dimline { stroke: var(--muted); stroke-width: .4; }
   @media (max-width: 900px) {
@@ -123,7 +124,7 @@
   <section class="pane" id="editorPane">
     <div class="head">Plank editor <span style="text-transform:none;letter-spacing:0">(one baluster, dimensions in mm)</span></div>
     <svg id="editor"></svg>
-    <div class="hint">Drag gold handles to shape the sawn edge (mirrored to the left side). Double-click the edge to add a point, double-click a handle to remove it. Drag cutouts to move, use the white corner dot to resize.</div>
+    <div class="hint">Drag gold handles to shape the sawn edge (mirrored to the left side). Shift-click or drag a box over handles to select several and move them together. Double-click the edge to add a point, double-click a handle to remove it. Drag cutouts to move, use the white corner dot to resize.</div>
   </section>
   <aside class="pane" id="controls">
     <fieldset>
@@ -164,7 +165,8 @@
       <div class="row"><label>Gap</label><input type="range" id="gap" min="0" max="120" step="2"><output id="gapv"></output></div>
       <div class="row"><label>Rails</label><input type="checkbox" id="rails" checked></div>
       <div class="row"><label>Gap shape</label><input type="checkbox" id="gapShape" title="Highlight the negative space formed between planks"></div>
-      <div class="row"><label>On stair</label><input type="checkbox" id="stair" title="Preview the run raked on a staircase"></div>
+      <div class="row"><label>On stair</label><input type="checkbox" id="stair" title="Also preview the run raked on a staircase"></div>
+      <div class="row"><label>Stair angle</label><input type="range" id="stairAngle" min="15" max="45" step="1"><output id="stairAnglev"></output></div>
     </fieldset>
     <fieldset>
       <legend>Colours</legend>
@@ -549,7 +551,8 @@ const MOTIF_FAMILIES = {
 /* ---------------- state ---------------- */
 let state = null;
 let selectedCutout = -1;
-let selectedPoint = -1;
+let selPts = new Set();     // selected edge-point indices (multi-select)
+let marquee = null;         // active rubber-band rect in editor mm coords
 let uid = 1;
 
 function defaultColors() {
@@ -571,11 +574,11 @@ function loadPreset(name, resetColors = false) {
     cutouts: p.cutouts.map(c => ({ ...JSON.parse(JSON.stringify(c)), id: uid++ })),
     proportion: { system: (p.proportion && p.proportion.system) || "off", snap },
     motif: MOTIF_FAMILIES[p.motif] !== undefined ? p.motif : "All shapes",
-    preview: { rails: true, gapShape: false, stair: false, ...colors, ...p.preview,
-      ...(state ? { rails: state.preview.rails, gapShape: state.preview.gapShape, stair: !!state.preview.stair } : {}) },
+    preview: { rails: true, gapShape: false, stair: true, stairAngle: 30, ...colors, ...p.preview,
+      ...(state ? { rails: state.preview.rails, gapShape: state.preview.gapShape, stair: !!state.preview.stair, stairAngle: state.preview.stairAngle ?? 30 } : {}) },
   };
   selectedCutout = -1;
-  selectedPoint = -1;
+  selPts = new Set();
 }
 
 /* backfill fields that older saved designs / localStorage predate */
@@ -584,6 +587,10 @@ function ensureDefaults(s) {
   if (!s.proportion) s.proportion = { system: "off", snap: true };
   if (s.proportion.snap === undefined) s.proportion.snap = true;
   if (!s.motif || MOTIF_FAMILIES[s.motif] === undefined) s.motif = "All shapes";
+  if (s.preview.stairAngle === undefined) {
+    s.preview.stairAngle = 30;
+    s.preview.stair = true; // stair run is now shown alongside the flat run by default
+  }
 }
 
 /* load a preset ("p:Name") or saved design ("d:Name") into the editor */
@@ -596,7 +603,7 @@ function loadSource(src, reset = false) {
       ensureDefaults(state);
       uid = Math.max(1, ...state.cutouts.map(c => c.id + 1));
       selectedCutout = -1;
-      selectedPoint = -1;
+      selPts = new Set();
     }
   } else {
     loadPreset(src.slice(2), reset);
@@ -772,8 +779,10 @@ function renderEditor() {
   // ghost handles (left, mirrored) + real handles (right)
   state.profile.forEach((p, i) => {
     s += `<circle class="ghosthandle" cx="${-p.x}" cy="${p.y}" r="4.5"/>`;
-    s += `<circle class="handle${i === selectedPoint ? " sel" : ""}" data-pt="${i}" cx="${p.x}" cy="${p.y}" r="5.5"/>`;
+    s += `<circle class="handle${selPts.has(i) ? " sel" : ""}" data-pt="${i}" cx="${p.x}" cy="${p.y}" r="5.5"/>`;
   });
+  if (marquee)
+    s += `<rect class="marquee" x="${marquee.x.toFixed(1)}" y="${marquee.y.toFixed(1)}" width="${marquee.w.toFixed(1)}" height="${marquee.h.toFixed(1)}"/>`;
   editor.innerHTML = s;
 }
 
@@ -790,58 +799,14 @@ function renderPreview() {
   const overlap = gap === 0 ? 0.4 : 0; // hide antialiasing seam when butted
   const pitch = effW + gap - overlap;
   const totalW = n * effW + (n - 1) * gap;
-
-  // raked "on stair" view: identical balusters step up to the right on an open
-  // string, tops following a sloped handrail (as on a straight staircase run)
-  if (pv.stair) {
-    const slope = 0.5, rise = pitch * slope;
-    const railTh = 34, capH = 12, m = 60, ext = 24;
-    const f = x => -slope * (x - maxX);              // baluster-top / handrail line
-    const treadY = i => h - i * rise;               // tread each baluster stands on
-    const xL = -ext, xR = totalW + ext;
-    const topY = f(xR) - railTh - capH, botY = h + 90;
-    const vy0 = topY - m;
-    preview.setAttribute("viewBox", `${-m} ${vy0} ${totalW + 2 * m} ${botY + m - vy0}`);
-
-    let s = `<rect x="${-m}" y="${vy0}" width="${totalW + 2 * m}" height="${botY + m - vy0}" fill="${pv.wallColor}"/>`;
-    // open-string staircase
-    let step = `M ${xL} ${treadY(0).toFixed(1)}`;
-    for (let i = 0; i < n; i++) {
-      const rx = i === n - 1 ? xR : (i + 1) * pitch;
-      step += ` L ${rx.toFixed(1)} ${treadY(i).toFixed(1)}`;
-      if (i < n - 1) step += ` L ${((i + 1) * pitch).toFixed(1)} ${treadY(i + 1).toFixed(1)}`;
-    }
-    step += ` L ${xR} ${botY} L ${xL} ${botY} Z`;
-    s += `<path d="${step}" fill="${shade(pv.wallColor, -26)}"/>`;
-    for (let i = 1; i < n; i++)
-      s += `<line x1="${(i * pitch).toFixed(1)}" y1="${treadY(i).toFixed(1)}" x2="${(i * pitch).toFixed(1)}" y2="${treadY(i - 1).toFixed(1)}" stroke="${shade(pv.wallColor, -46)}" stroke-width="3"/>`;
-
-    // balusters, raked
-    s += `<defs>${plankMask("tileMask")}</defs>`;
-    for (let i = 0; i < n; i++)
-      s += `<g transform="translate(${(maxX + i * pitch).toFixed(2)} ${(-i * rise).toFixed(2)})">${plankRect("tileMask", pv.plankColor)}</g>`;
-
-    // sloped handrail + cap
-    const yL = f(xL), yR = f(xR);
-    const bar = (dt, db, fill) => `<path d="M ${xL} ${(yL - dt).toFixed(1)} L ${xR} ${(yR - dt).toFixed(1)} L ${xR} ${(yR - db).toFixed(1)} L ${xL} ${(yL - db).toFixed(1)} Z" fill="${fill}"/>`;
-    s += bar(railTh, -6, pv.railColor);
-    s += bar(railTh + capH, railTh, shade(pv.railColor, -18));
-    preview.innerHTML = s;
-
-    $("previewInfo").textContent =
-      `On stair · ${n} balusters · ${Math.round(effW)}×${h} mm each · ${gap} mm gap · rake ≈ ${(Math.atan(slope) * 180 / Math.PI).toFixed(0)}°`;
-    return;
-  }
-
-  const railTop = 62, cap = 26, railBot = 96;
   const m = 60;
-  const top = pv.rails ? -(railTop + cap) : 0;
-  const bot = pv.rails ? h + railBot : h;
-  preview.setAttribute("viewBox", `${-m} ${top - m} ${totalW + 2 * m} ${bot - top + 2 * m}`);
 
-  let s = `<rect x="${-m}" y="${top - m}" width="${totalW + 2 * m}" height="${bot - top + 2 * m}" fill="${pv.wallColor}"/>`;
+  // flat (level) run, plank tops at y=0
+  const railTop = 62, cap = 26, railBot = 96;
+  const flatY0 = pv.rails ? -(railTop + cap) : 0;
+  const flatY1 = pv.rails ? h + railBot : h;
   // subtle floor
-  s += `<rect x="${-m}" y="${bot}" width="${totalW + 2 * m}" height="${m}" fill="rgba(60,40,20,0.25)"/>`;
+  let flat = `<rect x="${-m}" y="${flatY1}" width="${totalW + 2 * m}" height="${m}" fill="rgba(60,40,20,0.25)"/>`;
 
   // negative gap shapes
   if (pv.gapShape && n > 1) {
@@ -849,30 +814,76 @@ function renderPreview() {
       const cx = maxX + i * pitch;
       const rightEdge = samples.map(p => `${(cx + p.x).toFixed(2)} ${p.y.toFixed(2)}`);
       const leftEdge = [...samples].reverse().map(p => `${(cx + pitch - p.x).toFixed(2)} ${p.y.toFixed(2)}`);
-      s += `<path d="M ${rightEdge.join(" L ")} L ${leftEdge.join(" L ")} Z" fill="rgba(140,58,47,0.55)"/>`;
+      flat += `<path d="M ${rightEdge.join(" L ")} L ${leftEdge.join(" L ")} Z" fill="rgba(140,58,47,0.55)"/>`;
     }
   }
 
   // planks (shared mask, flat colour)
-  s += `<defs>${plankMask("tileMask")}</defs>`;
   for (let i = 0; i < n; i++) {
-    s += `<g transform="translate(${maxX + i * pitch} 0)">${plankRect("tileMask", pv.plankColor)}</g>`;
+    flat += `<g transform="translate(${maxX + i * pitch} 0)">${plankRect("tileMask", pv.plankColor)}</g>`;
   }
 
   // rails
   if (pv.rails) {
     const rx = -24, rw = totalW + 48;
-    s += `<rect x="${rx}" y="${-railTop}" width="${rw}" height="${railTop}" fill="${pv.railColor}"/>
+    flat += `<rect x="${rx}" y="${-railTop}" width="${rw}" height="${railTop}" fill="${pv.railColor}"/>
       <rect x="${rx - 12}" y="${-railTop - cap}" width="${rw + 24}" height="${cap}" rx="7" fill="${shade(pv.railColor, -18)}"/>
       <rect x="${rx}" y="${h}" width="${rw}" height="${railBot}" fill="${pv.railColor}"/>
       <rect x="${rx}" y="${h}" width="${rw}" height="10" fill="${shade(pv.railColor, -22)}"/>`;
   }
+
+  // raked "on stair" run: identical balusters step up to the right on an open
+  // string, tops following a handrail sloped at the chosen rake angle
+  let stair = "", stairY0 = 0, stairY1 = 0, ang = 0;
+  if (pv.stair) {
+    ang = clamp(pv.stairAngle ?? 30, 15, 45);
+    const slope = Math.tan(ang * Math.PI / 180), rise = pitch * slope;
+    const railTh = 34, capH = 12, ext = 24;
+    const f = x => -slope * (x - maxX);              // baluster-top / handrail line
+    const treadY = i => h - i * rise;                // tread each baluster stands on
+    const xL = -ext, xR = totalW + ext;
+    stairY0 = f(xR) - railTh - capH;
+    stairY1 = h + 90;
+    // open-string staircase
+    let step = `M ${xL} ${treadY(0).toFixed(1)}`;
+    for (let i = 0; i < n; i++) {
+      const rx = i === n - 1 ? xR : (i + 1) * pitch;
+      step += ` L ${rx.toFixed(1)} ${treadY(i).toFixed(1)}`;
+      if (i < n - 1) step += ` L ${((i + 1) * pitch).toFixed(1)} ${treadY(i + 1).toFixed(1)}`;
+    }
+    step += ` L ${xR} ${stairY1} L ${xL} ${stairY1} Z`;
+    stair += `<path d="${step}" fill="${shade(pv.wallColor, -26)}"/>`;
+    for (let i = 1; i < n; i++)
+      stair += `<line x1="${(i * pitch).toFixed(1)}" y1="${treadY(i).toFixed(1)}" x2="${(i * pitch).toFixed(1)}" y2="${treadY(i - 1).toFixed(1)}" stroke="${shade(pv.wallColor, -46)}" stroke-width="3"/>`;
+
+    // balusters, raked
+    for (let i = 0; i < n; i++)
+      stair += `<g transform="translate(${(maxX + i * pitch).toFixed(2)} ${(-i * rise).toFixed(2)})">${plankRect("tileMask", pv.plankColor)}</g>`;
+
+    // sloped handrail + cap
+    const yL = f(xL), yR = f(xR);
+    const bar = (dt, db, fill) => `<path d="M ${xL} ${(yL - dt).toFixed(1)} L ${xR} ${(yR - dt).toFixed(1)} L ${xR} ${(yR - db).toFixed(1)} L ${xL} ${(yL - db).toFixed(1)} Z" fill="${fill}"/>`;
+    stair += bar(railTh, -6, pv.railColor);
+    stair += bar(railTh + capH, railTh, shade(pv.railColor, -18));
+  }
+
+  // stack the flat run above the stair run in one view
+  const sceneGap = 40;
+  const stairOff = flatY1 + m + sceneGap - stairY0;
+  const y0 = flatY0 - m;
+  const y1 = (pv.stair ? stairOff + stairY1 : flatY1) + m;
+  preview.setAttribute("viewBox", `${-m} ${y0} ${totalW + 2 * m} ${y1 - y0}`);
+  let s = `<rect x="${-m}" y="${y0}" width="${totalW + 2 * m}" height="${y1 - y0}" fill="${pv.wallColor}"/>`;
+  s += `<defs>${plankMask("tileMask")}</defs>`;
+  s += flat;
+  if (pv.stair) s += `<g transform="translate(0 ${stairOff.toFixed(1)})">${stair}</g>`;
   preview.innerHTML = s;
 
   const cc = ((effW + gap) / 10).toFixed(1);
   $("previewInfo").textContent =
     `${n} planks · ${Math.round(effW)}×${h} mm each · ${gap} mm gap · ${cc} cm centre-to-centre · total width ${(totalW / 10).toFixed(0)} cm` +
-    (pv.rails ? ` · height incl. rails ${((h + railTop + cap + railBot) / 10).toFixed(0)} cm` : "");
+    (pv.rails ? ` · height incl. rails ${((h + railTop + cap + railBot) / 10).toFixed(0)} cm` : "") +
+    (pv.stair ? ` · stair rake ${ang}°` : "");
 }
 function shade(hex, amt) {
   const v = hex.match(/[0-9a-f]{2}/gi).map(x => clamp(parseInt(x, 16) + amt, 0, 255));
@@ -917,6 +928,7 @@ function bindRange(id, get, set) {
 }
 function fmt(id, v) {
   if (id === "count") return v + " st";
+  if (id === "stairAngle") return v + "°";
   return v + " mm";
 }
 const syncers = [];
@@ -957,10 +969,12 @@ function setupControls() {
   }));
   syncers.push(bindRange("count", () => state.preview.count, v => state.preview.count = v));
   syncers.push(bindRange("gap", () => state.preview.gap, v => state.preview.gap = v));
+  syncers.push(bindRange("stairAngle", () => state.preview.stairAngle ?? 30, v => state.preview.stairAngle = v));
   for (const [id, key] of [["rails", "rails"], ["gapShape", "gapShape"], ["stair", "stair"]]) {
     $(id).addEventListener("input", () => { state.preview[key] = $(id).checked; renderAll(); });
     syncers.push(() => $(id).checked = state.preview[key]);
   }
+  syncers.push(() => $("stairAngle").disabled = !state.preview.stair);
   for (const id of ["plankColor", "railColor", "wallColor"]) {
     $(id).addEventListener("input", () => { state.preview[id] = $(id).value; renderAll(); });
     syncers.push(() => $(id).value = state.preview[id]);
@@ -1070,15 +1084,42 @@ function addCutout(type) {
   }
   state.cutouts.push(c);
   selectedCutout = state.cutouts.length - 1;
-  selectedPoint = -1;
+  selPts.clear();
   renderAll();
 }
 
 function renderPointPanel() {
   const panel = $("pointPanel");
+  if (selPts.size > 1) {
+    const idxs = [...selPts].sort((a, b) => a - b);
+    const last = state.profile.length - 1;
+    const r0 = state.profile[idxs[0]].r ?? 0;
+    panel.innerHTML = `<legend>${selPts.size} edge points selected</legend>
+      <div class="row"><label>Radius</label><input type="range" id="pr" min="0" max="250" value="${r0}"><output>${r0} mm</output></div>
+      <div class="btnrow"><button id="pdel">Remove points</button></div>
+      <div class="row" style="color:var(--muted)">Drag any selected handle to move the group. Shift-click to add or remove.</div>`;
+    const pr = $("pr");
+    const setAll = v => { for (const j of selPts) state.profile[j].r = v; };
+    pr.addEventListener("input", () => {
+      setAll(+pr.value);
+      pr.nextElementSibling.textContent = pr.value + " mm";
+      renderEditor(); renderPreview(); saveLocal();
+    });
+    makeEditable(pr.nextElementSibling, () => state.profile[idxs[0]].r ?? 0, v => {
+      setAll(v);
+      renderEditor(); renderPreview(); renderPointPanel(); saveLocal();
+    }, 0, 250);
+    $("pdel").addEventListener("click", () => {
+      state.profile = state.profile.filter((_, j) => !selPts.has(j) || j === 0 || j === last);
+      selPts.clear();
+      renderAll();
+    });
+    return;
+  }
+  const selectedPoint = selPts.size ? [...selPts][0] : -1;
   const p = state.profile[selectedPoint];
   if (!p) {
-    panel.innerHTML = `<legend>Selected edge point</legend><div class="none">Click a gold handle to select it.</div>`;
+    panel.innerHTML = `<legend>Selected edge point</legend><div class="none">Click a gold handle to select it. Shift-click or drag a box to select several.</div>`;
     return;
   }
   const isEnd = selectedPoint === 0 || selectedPoint === state.profile.length - 1;
@@ -1101,7 +1142,7 @@ function renderPointPanel() {
     makeEditable($("pyv"), () => p.y, v => { p.y = v; rerender(); }, prev.y + 4, next.y - 4);
     $("pdel").addEventListener("click", () => {
       state.profile.splice(selectedPoint, 1);
-      selectedPoint = -1;
+      selPts.clear();
       renderAll();
     });
   }
@@ -1179,9 +1220,17 @@ editor.addEventListener("pointerdown", evt => {
   const t = evt.target;
   const p = svgPoint(evt);
   if (t.dataset.pt !== undefined) {
-    drag = { kind: "pt", i: +t.dataset.pt };
-    selectedPoint = +t.dataset.pt;
+    const i = +t.dataset.pt;
     selectedCutout = -1;
+    if (evt.shiftKey) {
+      if (selPts.has(i)) selPts.delete(i); else selPts.add(i);
+    } else if (!selPts.has(i)) {
+      selPts = new Set([i]);
+    }
+    if (selPts.has(i)) {
+      drag = { kind: "pt", i, sx: p.x, sy: p.y,
+        orig: new Map([...selPts].map(j => [j, { x: state.profile[j].x, y: state.profile[j].y }])) };
+    }
     renderEditor(); renderPointPanel(); renderCutoutPanel();
   } else if (t.dataset.resize !== undefined) {
     drag = { kind: "resize", i: +t.dataset.resize };
@@ -1192,14 +1241,15 @@ editor.addEventListener("pointerdown", evt => {
     if (g) {
       const i = +g.dataset.cut;
       selectedCutout = i;
-      selectedPoint = -1;
+      selPts.clear();
       const c = state.cutouts[i];
       drag = { kind: "cut", i, dx: p.x - c.cx, dy: p.y - c.cy };
       renderEditor(); renderPointPanel(); renderCutoutPanel();
-    } else if (selectedCutout !== -1 || selectedPoint !== -1) {
-      selectedCutout = -1;
-      selectedPoint = -1;
-      renderEditor(); renderPointPanel(); renderCutoutPanel();
+    } else {
+      // background: rubber-band select handles; a plain click clears the selection
+      drag = { kind: "marquee", x0: p.x, y0: p.y, moved: false, add: evt.shiftKey,
+        base: evt.shiftKey ? new Set(selPts) : new Set() };
+      marquee = null;
     }
   }
   if (drag) { editor.setPointerCapture(evt.pointerId); evt.preventDefault(); }
@@ -1208,13 +1258,46 @@ editor.addEventListener("pointermove", evt => {
   if (!drag) return;
   const p = svgPoint(evt);
   const { w, h } = state.plank;
+  if (drag.kind === "marquee") {
+    drag.moved = drag.moved || Math.hypot(p.x - drag.x0, p.y - drag.y0) > 3;
+    marquee = { x: Math.min(drag.x0, p.x), y: Math.min(drag.y0, p.y),
+      w: Math.abs(p.x - drag.x0), h: Math.abs(p.y - drag.y0) };
+    selPts = new Set(drag.base);
+    const inR = (x, y) => x >= marquee.x && x <= marquee.x + marquee.w && y >= marquee.y && y <= marquee.y + marquee.h;
+    state.profile.forEach((pt, i) => {
+      if (inR(pt.x, pt.y) || inR(-pt.x, pt.y)) selPts.add(i); // real or mirrored ghost handle
+    });
+    renderEditor(); renderPointPanel();
+    return;
+  }
   if (drag.kind === "pt") {
-    const pts = state.profile, i = drag.i;
-    const pt = pts[i];
-    pt.x = round1(clamp(Math.abs(p.x), 4, w / 2));
-    if (i !== 0 && i !== pts.length - 1) {
-      const lo = pts[i - 1].y + 4, hi = pts[i + 1].y - 4;
-      pt.y = round1(clamp(snapY(p.y), lo, hi));
+    const pts = state.profile, last = pts.length - 1;
+    if (drag.orig.size === 1) {
+      const i = drag.i, pt = pts[i];
+      pt.x = round1(clamp(Math.abs(p.x), 4, w / 2));
+      if (i !== 0 && i !== last) {
+        const lo = pts[i - 1].y + 4, hi = pts[i + 1].y - 4;
+        pt.y = round1(clamp(snapY(p.y), lo, hi));
+      }
+    } else {
+      // group move: shift every selected point by the pointer delta, clamped so
+      // no point leaves the plank or crosses an unselected neighbour; end
+      // points stay pinned to the top/bottom edge (x only)
+      let dx = p.x - drag.sx, dy = p.y - drag.sy;
+      const movesY = j => drag.orig.has(j) && j !== 0 && j !== last;
+      const go = drag.orig.get(drag.i);
+      if (movesY(drag.i)) dy = snapY(go.y + dy) - go.y; // snap on the grabbed point
+      for (const [, o] of drag.orig) dx = clamp(dx, 4 - o.x, w / 2 - o.x);
+      for (const [j, o] of drag.orig) {
+        if (!movesY(j)) continue;
+        const lo = movesY(j - 1) ? -Infinity : pts[j - 1].y + 4;
+        const hi = movesY(j + 1) ? Infinity : pts[j + 1].y - 4;
+        dy = clamp(dy, lo - o.y, hi - o.y);
+      }
+      for (const [j, o] of drag.orig) {
+        pts[j].x = round1(clamp(o.x + dx, 4, w / 2));
+        if (movesY(j)) pts[j].y = round1(o.y + dy);
+      }
     }
   } else if (drag.kind === "cut") {
     const c = state.cutouts[drag.i];
@@ -1236,7 +1319,22 @@ editor.addEventListener("pointermove", evt => {
   if (selectedCutout !== -1 && drag.kind !== "pt") renderCutoutPanel();
   if (drag.kind === "pt") renderPointPanel();
 });
-editor.addEventListener("pointerup", () => { if (drag) { drag = null; saveLocal(); } });
+editor.addEventListener("pointerup", () => {
+  if (!drag) return;
+  if (drag.kind === "marquee") {
+    if (!drag.moved && !drag.add) { // plain click on empty space: deselect
+      selPts.clear();
+      selectedCutout = -1;
+      renderPointPanel(); renderCutoutPanel();
+    }
+    marquee = null;
+    renderEditor();
+    drag = null;
+    return;
+  }
+  drag = null;
+  saveLocal();
+});
 editor.addEventListener("dblclick", evt => {
   const t = evt.target;
   if (t.dataset.vtx !== undefined && state.cutouts[selectedCutout]) {
@@ -1251,7 +1349,7 @@ editor.addEventListener("dblclick", evt => {
     const i = +t.dataset.pt;
     if (i !== 0 && i !== state.profile.length - 1) {
       state.profile.splice(i, 1);
-      selectedPoint = -1;
+      selPts.clear();
       renderAll();
     }
     return;
@@ -1263,7 +1361,7 @@ editor.addEventListener("dblclick", evt => {
     let i = pts.findIndex(pt => pt.y > y);
     if (i <= 0) i = pts.length - 1;
     pts.splice(i, 0, { x: round1(clamp(Math.abs(p.x), 4, state.plank.w / 2)), y, r: 30 });
-    selectedPoint = i;
+    selPts = new Set([i]);
     selectedCutout = -1;
     renderAll();
   }
